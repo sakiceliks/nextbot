@@ -9,10 +9,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "İLANLA — Sahibinden Analiz & İlan yayınlama botu",
+  title: "İLANLA — Sahibinden Analiz & İlan yayınlama projesi",
   description:
-    "Araç parçası görselini Google Lens, Groq AI ve Puppeteer ile otomatik ilana dönüştüren akıllı sistem.",
-  keywords: ["araç parçası", "sahibinden", "ilan", "AI", "Google Lens", "Groq"],
+    "Araç parçası görselini otomatik ilana dönüştüren akıllı sistem.",
+  keywords: ["araç parçası", "sahibinden", "ilan", "AI"],
   authors: [{ name: "İLANLA" }],
   robots: "noindex, nofollow",
 };
