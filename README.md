@@ -42,7 +42,6 @@ npm run dev
 Ardından [http://localhost:3000](http://localhost:3000) adresini aç.
 
 ## Önerilen kullanım
-
 1. `Tarayıcıyı aç` veya `Sahibinden oturum aç` butonuyla kalıcı profilli Chrome oturumu başlat.
 2. `Profil durumunu kontrol et` ile rozetin `Giriş yapılmış` durumuna geldiğini doğrula.
 3. Gerekirse sahibinden hesabında giriş yap.
@@ -62,6 +61,7 @@ Ardından [http://localhost:3000](http://localhost:3000) adresini aç.
 - `publish` modu düşük güvenli alanlar gözden geçirildikten sonra tam yayın akışını dener.
 
 ## Mevcut sınırlar
+
 
 - Sahibinden selector’ları şu an verilen HTML örneklerine göre yazıldı.
 - Fiyat ve açıklama global sabit değerlerden gelir.
