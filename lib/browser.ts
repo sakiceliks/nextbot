@@ -23,12 +23,14 @@ export function resolveChromeExecutable() {
   }
 
   const candidates = [
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    path.join(os.homedir(), "Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
     path.join(os.homedir(), "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
   ];
 
-  return candidates[0];
+  return candidates.find(existsSync) || candidates[0];
 }
 
 function getRuntimeDir() {

@@ -40,6 +40,7 @@ import {
   History,
   Layers,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -323,63 +324,6 @@ const ProgressBar = memo(
   ),
 );
 
-const Toast = memo(
-  ({
-    message,
-    type,
-    onClose,
-  }: {
-    message: string;
-    type: "error" | "success" | "info";
-    onClose: () => void;
-  }) => {
-    useEffect(() => {
-      const timer = setTimeout(onClose, 5000);
-      return () => clearTimeout(timer);
-    }, [onClose]);
-
-    const config = {
-      error: {
-        bg: "bg-red-500/10 border-red-500/20 text-red-400",
-        icon: AlertCircle,
-      },
-      success: {
-        bg: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
-        icon: CheckCircle2,
-      },
-      info: {
-        bg: "bg-blue-500/10 border-blue-500/20 text-blue-400",
-        icon: Info,
-      },
-    };
-
-    const Icon = config[type].icon;
-
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 50, scale: 0.9 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.9 }}
-        className={cn(
-          "fixed bottom-24 left-1/2 -translate-x-1/2 z-50",
-          "flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-xl shadow-2xl",
-          "max-w-[90vw] w-auto min-w-[300px]",
-          config[type].bg,
-        )}
-      >
-        <Icon className="w-5 h-5 shrink-0" />
-        <p className="text-sm font-medium flex-1">{message}</p>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </motion.div>
-    );
-  },
-);
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -411,9 +355,6 @@ export default function HomePage() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("Hazırlanıyor…");
   const [publishSuccess, setPublishSuccess] = useState(false);
-  const [toasts, setToasts] = useState<
-    Array<{ id: string; message: string; type: "error" | "success" | "info" }>
-  >([]);
 
   // Browser
   const [showBrowserPanel, setShowBrowserPanel] = useState(false);
@@ -430,6 +371,8 @@ export default function HomePage() {
   // Batch & auto-publish
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [autoPublish, setAutoPublish] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [selectedDomain, setSelectedDomain] = useState<"Yedek Parça" | "Akıllı Telefon">("Yedek Parça");
 
   // Transitions
   const [isAnalyzing, startAnalyzing] = useTransition();
@@ -453,19 +396,6 @@ export default function HomePage() {
     [browserStatus?.status],
   );
 
-  // Toast Helper
-  const showToast = useCallback(
-    (message: string, type: "error" | "success" | "info" = "info") => {
-      const id = Math.random().toString(36).substring(7);
-      setToasts((prev) => [...prev, { id, message, type }]);
-    },
-    [],
-  );
-
-  const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
   // Navigation
   const navigate = useCallback(
     (next: number) => {
@@ -488,8 +418,8 @@ export default function HomePage() {
     setProgressLabel("Hazırlanıyor…");
     setReviewedForPublish(false);
     setPublishSuccess(false);
-    showToast("Başarıyla sıfırlandı", "success");
-  }, [clearFile, setError, clearLogs, showToast]);
+    toast.success("Başarıyla sıfırlandı");
+  }, [clearFile, setError, clearLogs]);
 
   // Analysis Progress Effect
   useEffect(() => {
@@ -544,13 +474,13 @@ export default function HomePage() {
 
       if (applyFile(file)) {
         addLog(`Panodan görsel alındı: ${file.name}`);
-        showToast("Görsel panodan yapıştırıldı", "success");
+        toast.success("Görsel panodan yapıştırıldı");
       }
     };
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [applyFile, addLog, showToast]);
+  }, [applyFile, addLog]);
 
   // Browser Status Check
   const checkBrowserStatus = useCallback(
@@ -589,7 +519,7 @@ export default function HomePage() {
   // API Calls
   const runAnalyze = useCallback(async () => {
     if (!file) {
-      showToast("Lütfen önce bir görsel seçin", "error");
+      toast.error("Lütfen önce bir görsel seçin");
       return;
     }
 
@@ -602,6 +532,7 @@ export default function HomePage() {
 
       const formData = new FormData();
       formData.append("image", file);
+      formData.append("domain", selectedDomain);
 
       try {
         const res = await fetch("/api/analyze", {
@@ -620,18 +551,18 @@ export default function HomePage() {
 
         if (result.draft.warnings.length > 0) {
           result.draft.warnings.forEach((w) => addLog(`⚠️ ${w}`));
-          showToast(`${result.draft.warnings.length} uyarı bulundu`, "info");
+          toast.info(`${result.draft.warnings.length} uyarı bulundu`);
         }
 
         setTimeout(() => navigate(2), 800);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Bağlantı hatası";
         setError(msg);
-        showToast(msg, "error");
+        toast.error(msg);
         navigate(0);
       }
     });
-  }, [file, navigate, setError, clearLogs, addLog, showToast]);
+  }, [file, navigate, setError, clearLogs, addLog]);
 
   const openBrowser = useCallback(
     async (mode: "home" | "login" | "post-ad") => {
@@ -650,15 +581,15 @@ export default function HomePage() {
 
           setBrowserInfo(result);
           addLog(`Tarayıcı açıldı: ${result.targetUrl}`);
-          showToast("Tarayıcı başlatıldı", "success");
+          toast.success("Tarayıcı başlatıldı");
           checkBrowserStatus(false);
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Başlatma hatası";
-          showToast(msg, "error");
+          toast.error(msg);
         }
       });
     },
-    [addLog, showToast, checkBrowserStatus],
+    [addLog, checkBrowserStatus],
   );
 
   const runPublish = useCallback(
@@ -682,17 +613,16 @@ export default function HomePage() {
           }
 
           setPublishSuccess(true);
-          showToast(
+          toast.success(
             mode === "publish" ? "İlan yayınlandı!" : "Taslak kaydedildi",
-            "success",
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Yayın hatası";
-          showToast(msg, "error");
+          toast.error(msg);
         }
       });
     },
-    [draft, reviewedForPublish, addLog, showToast],
+    [draft, reviewedForPublish, addLog],
   );
 
   // Draft Update
@@ -730,12 +660,14 @@ export default function HomePage() {
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragActive(false);
+      
+      if (isBatchMode) return;
 
       const dropped = Array.from(e.dataTransfer.files).find((f) =>
         f.type.startsWith("image/"),
       );
       if (!dropped) {
-        showToast("Sadece görsel dosyası bırakabilirsiniz", "error");
+        toast.error("Sadece görsel dosyası bırakabilirsiniz");
         return;
       }
 
@@ -743,7 +675,7 @@ export default function HomePage() {
         addLog(`Sürükle-bırak: ${dropped.name}`);
       }
     },
-    [applyFile, addLog, showToast],
+    [applyFile, addLog],
   );
 
   // Tab Handler
@@ -883,7 +815,40 @@ export default function HomePage() {
       <SplashScreen />
       <AuroraBackground />
 
-      <div className="min-h-dvh flex flex-col bg-[#0a0a0a] text-white relative">
+      <div
+        ref={dropZoneRef}
+        onDragEnter={!isBatchMode ? handleDragOver : undefined}
+        onDragLeave={!isBatchMode ? handleDragLeave : undefined}
+        onDragOver={!isBatchMode ? handleDragOver : undefined}
+        onDrop={!isBatchMode ? handleDrop : undefined}
+        className="min-h-dvh flex flex-col bg-[#0a0a0a] text-white relative"
+      >
+        {/* Global Drag Overlay */}
+        <AnimatePresence>
+          {isDragActive && !isBatchMode && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-none"
+            >
+              <div className="absolute inset-4 border-4 border-dashed border-emerald-500/50 rounded-3xl flex flex-col items-center justify-center gap-6 bg-emerald-500/5">
+                <div className="w-32 h-32 rounded-full bg-emerald-500/20 flex items-center justify-center animate-pulse">
+                  <UploadCloud className="w-16 h-16 text-emerald-400" />
+                </div>
+                <div className="text-center">
+                  <h2 className="text-4xl font-black text-white tracking-widest uppercase">
+                    Görseli Buraya Bırakın
+                  </h2>
+                  <p className="text-emerald-400 font-medium mt-2 text-lg">
+                    Hemen analiz etmeye başlayalım
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Header */}
         <header className="sticky top-0 z-50 border-b border-white/5 bg-black/40 backdrop-blur-2xl supports-[backdrop-filter]:bg-black/20">
           <div className="mx-auto flex h-20 sm:h-[72px] max-w-2xl items-center justify-between px-4 sm:px-6">
@@ -901,6 +866,22 @@ export default function HomePage() {
             <div className="flex items-center">
               {/* Batch mode + auto-publish toggles */}
               <div className="flex items-center gap-2 mr-2">
+                {/* Test mode toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsTestMode((v) => !v)}
+                  title={isTestMode ? "Test Modu: Açık" : "Test Modu: Kapalı"}
+                  className={[
+                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95",
+                    isTestMode
+                      ? "border-purple-400/40 bg-purple-400/10 text-purple-400"
+                      : "border-zinc-700 bg-zinc-800/50 text-zinc-500 hover:text-zinc-400",
+                  ].join(" ")}
+                >
+                  <Lightbulb className="w-3 h-3" />
+                  <span className="hidden sm:inline">Test</span>
+                </button>
+
                 {/* Auto-publish toggle */}
                 <button
                   type="button"
@@ -1032,8 +1013,28 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+              
+              {/* Domain Selection for Batch Mode */}
+              <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5 mb-4">
+                {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
+                  <button
+                    key={domain}
+                    onClick={() => setSelectedDomain(domain)}
+                    className={cn(
+                      "flex-1 text-sm font-bold uppercase tracking-wider py-2.5 rounded-xl transition-all",
+                      selectedDomain === domain
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
+                        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                    )}
+                  >
+                    {domain}
+                  </button>
+                ))}
+              </div>
+
               <BatchUploadPanel
                 autoPublish={autoPublish}
+                domain={selectedDomain}
                 onBatchComplete={(stats) => {
                   // optionally handle completion
                   console.log("Batch complete:", stats);
@@ -1156,6 +1157,23 @@ export default function HomePage() {
                         </span>
                       </motion.button>
                     </div>
+
+                    <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5 mt-4">
+                      {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
+                        <button
+                          key={domain}
+                          onClick={() => setSelectedDomain(domain)}
+                          className={cn(
+                            "flex-1 text-sm font-bold uppercase tracking-wider py-3 rounded-xl transition-all",
+                            selectedDomain === domain
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
+                              : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                          )}
+                        >
+                          {domain}
+                        </button>
+                      ))}
+                    </div>
                   </motion.div>
                 )}
 
@@ -1172,10 +1190,6 @@ export default function HomePage() {
                     className="mt-6 space-y-4"
                   >
                     <motion.div
-                      ref={dropZoneRef}
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
                       onClick={() => !file && fileInputRef.current?.click()}
                       className={cn(
                         "relative rounded-3xl border-2 overflow-hidden transition-all duration-300",
@@ -1252,6 +1266,23 @@ export default function HomePage() {
                         )}
                       </AnimatePresence>
                     </motion.div>
+
+                    <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5">
+                      {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
+                        <button
+                          key={domain}
+                          onClick={() => setSelectedDomain(domain)}
+                          className={cn(
+                            "flex-1 text-sm font-bold uppercase tracking-wider py-3 rounded-xl transition-all",
+                            selectedDomain === domain
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
+                              : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                          )}
+                        >
+                          {domain}
+                        </button>
+                      ))}
+                    </div>
 
                     {file && (
                       <motion.button
@@ -1395,38 +1426,54 @@ export default function HomePage() {
                     transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
                     className="mt-6 pb-20"
                   >
-                    <ListingPreview
-                      draft={draft}
-                      preview={preview}
-                      onUpdateField={updateDraftField}
-                      onDraft={() => runPublish("draft")}
-                      onPublish={() => runPublish("publish")}
-                      onReset={handleReset}
-                      isPublishing={isPublishing}
-                      canPublish={canPublish}
-                      reviewedForPublish={reviewedForPublish}
-                      onReviewedChange={setReviewedForPublish}
-                      error={fileError}
-                      publishSuccess={publishSuccess}
-                    />
+                    {isTestMode ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between px-2">
+                          <h2 className="text-xl font-black text-purple-400 uppercase tracking-widest">
+                            Test Analiz Sonucu
+                          </h2>
+                          <button
+                            onClick={handleReset}
+                            className="text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-white"
+                          >
+                            Yeni Görsel
+                          </button>
+                        </div>
+                        <div className="bg-zinc-900 border border-white/10 rounded-2xl p-4 overflow-auto max-h-[60vh] shadow-inner">
+                          <pre className="text-[11px] font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                            {JSON.stringify(draft, null, 2)}
+                          </pre>
+                        </div>
+                        <motion.button
+                          whileTap={{ scale: 0.98 }}
+                          onClick={handleReset}
+                          className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold uppercase tracking-wider text-sm transition-colors"
+                        >
+                          Sıfırla ve Geri Dön
+                        </motion.button>
+                      </div>
+                    ) : (
+                      <ListingPreview
+                        draft={draft}
+                        preview={preview}
+                        onUpdateField={updateDraftField}
+                        onDraft={() => runPublish("draft")}
+                        onPublish={() => runPublish("publish")}
+                        onReset={handleReset}
+                        isPublishing={isPublishing}
+                        canPublish={canPublish}
+                        reviewedForPublish={reviewedForPublish}
+                        onReviewedChange={setReviewedForPublish}
+                        error={fileError}
+                        publishSuccess={publishSuccess}
+                      />
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
             </>
           )}
         </main>
-
-        {/* Toasts */}
-        <AnimatePresence>
-          {toasts.map((toast) => (
-            <Toast
-              key={toast.id}
-              message={toast.message}
-              type={toast.type}
-              onClose={() => removeToast(toast.id)}
-            />
-          ))}
-        </AnimatePresence>
 
         {/* Navigation */}
         <Navigation

@@ -98,15 +98,14 @@ export async function detectSahibindenAuthStatus(): Promise<BrowserAuthResult> {
       page = existingPage;
       addLog(logs, `Mevcut bir Sahibinden sekmesi bulundu: ${page.url()}`);
     } else {
-      page = await browser.newPage();
-      isNewPage = true;
-      addLog(logs, "Oturum kontrolu icin yeni sekme olusturuldu.");
-
-      await page.goto("https://banaozel.sahibinden.com", {
-        waitUntil: "domcontentloaded",
-        timeout: 45_000,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      addLog(logs, "Açık Sahibinden sekmesi bulunamadı. Otomatik sekme açılmayacak.");
+      return {
+        ok: true,
+        status: "logged-out",
+        browserRunning: true,
+        message: "Sahibinden sekmesi açık değil.",
+        logs,
+      };
     }
 
     const currentUrl = page.url();

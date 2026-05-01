@@ -42,6 +42,11 @@ export type ListingDraft = {
   partCategory: string;
   price: number;
   description: string;
+  color?: string;
+  storage?: string;
+  origin?: string;
+  warranty?: string;
+  exchangeable?: string;
   imageUrl: string;
   imagePath: string;
   inStock: boolean;

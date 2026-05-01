@@ -16,12 +16,14 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("image");
 
+    const domain = (formData.get("domain") as string) || "Yedek Parça";
+
     if (!(file instanceof File)) {
       console.log(`[${traceId}] Hata: Gorsel dosyasi bulunamadi.`);
       return NextResponse.json({ error: "Gorsel dosyasi zorunlu." }, { status: 400 });
     }
 
-    console.log(`[${traceId}] Dosya alindi: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`[${traceId}] Dosya alindi: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB), Tur: ${domain}`);
 
     const savedImage = await saveFormFile(file);
     console.log(`[${traceId}] Dosya kaydedildi: ${savedImage.fullPath}`);
@@ -35,12 +37,13 @@ export async function POST(request: Request) {
     console.log(`[${traceId}] Google Lens tamamlandi.`);
 
     console.log(`[${traceId}] Groq AI analizi basliyor...`);
-    const groqRaw = await analyzeWithGroq(lensRaw, imageUrl);
+    const groqRaw = await analyzeWithGroq(lensRaw, imageUrl, domain);
     console.log(`[${traceId}] Groq analizi tamamlandi.`);
 
     const draft = normalizeListingDraft(groqRaw, {
       imageUrl,
-      imagePath: savedImage.relativePath
+      imagePath: savedImage.relativePath,
+      domain
     });
 
     console.log(`[${traceId}] Analiz basariyla sonuclandi.`);

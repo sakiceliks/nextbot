@@ -15,7 +15,7 @@ const SELECTOR_TIMEOUT_MS = 5_000;
 async function tryConnectToExistingBrowser(logs: string[]) {
   const session = await readBrowserSession();
   if (!session) {
-    logs.push("Kayitli browser session bulunamadi, yeni Chrome acilacak.");
+    logs.push("Kayitli browser session bulunamadi, yeni tarayıcı acilacak.");
     return null;
   }
 
@@ -29,25 +29,25 @@ async function tryConnectToExistingBrowser(logs: string[]) {
 
     if (!response.ok) {
       logs.push(
-        "Kayitli browser session endpointine ulasilamadi, yeni Chrome acilacak.",
+        "Kayitli browser session endpointine ulasilamadi, yeni tarayıcı acilacak.",
       );
       return null;
     }
 
     const json = (await response.json()) as { webSocketDebuggerUrl?: string };
     if (!json.webSocketDebuggerUrl) {
-      logs.push("Browser websocket adresi bulunamadi, yeni Chrome acilacak.");
+      logs.push("Browser websocket adresi bulunamadi, yeni tarayıcı acilacak.");
       return null;
     }
 
-    logs.push(`Mevcut Chrome oturumuna baglaniliyor (${session.port}).`);
+    logs.push(`Mevcut tarayıcı oturumuna baglaniliyor (${session.port}).`);
     return puppeteer.connect({
       browserWSEndpoint: json.webSocketDebuggerUrl,
       defaultViewport: null,
     });
   } catch {
     logs.push(
-      "Mevcut Chrome oturumuna baglanma denemesi basarisiz oldu, yeni Chrome acilacak.",
+      "Mevcut tarayıcı oturumuna baglanma denemesi basarisiz oldu, yeni tarayıcı acilacak.",
     );
     return null;
   }
@@ -890,11 +890,11 @@ export async function publishListing(listing: ListingDraft, mode: PublishMode) {
         args: ["--start-maximized", "--remote-debugging-port=9222"],
       });
       shouldCloseBrowser = true;
-      addLog(logs, "Yeni Chrome oturumu acildi.");
+      addLog(logs, "Yeni tarayıcı oturumu acildi.");
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Chrome baslatilamadi";
-      addLog(logs, "Chrome acilamadi. Muhtemelen ayni profil zaten acik.");
+        error instanceof Error ? error.message : "Tarayıcı baslatilamadi";
+      addLog(logs, "Tarayıcı acilamadi. Muhtemelen ayni profil zaten acik.");
       addLog(
         logs,
         "Uygulamadaki 'Tarayiciyi ac' veya 'Sahibinden oturum ac' butonuyla mevcut oturumu kullanin.",

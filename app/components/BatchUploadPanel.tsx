@@ -33,6 +33,11 @@ const EDITABLE_FIELDS: Array<keyof ListingDraft> = [
   "partCategory",
   "price",
   "description",
+  "color",
+  "storage",
+  "origin",
+  "warranty",
+  "exchangeable",
 ];
 
 const FIELD_LABELS: Partial<Record<keyof ListingDraft, string>> = {
@@ -46,10 +51,23 @@ const FIELD_LABELS: Partial<Record<keyof ListingDraft, string>> = {
   partCategory: "Parça Kategorisi",
   price: "Fiyat (₺)",
   description: "Açıklama",
+  color: "Renk",
+  storage: "Kapasite",
+  origin: "Alındığı Yer",
+  warranty: "Garanti",
+  exchangeable: "Takaslı",
 };
 
 const INPUT_BASE =
   "w-full rounded-xl border border-zinc-800 bg-[#0d1117] px-3 py-2 text-sm text-zinc-200 outline-none focus:border-[#11F08E]/50 transition-colors";
+  
+const PHONE_OPTIONS = {
+  color: ["Siyah", "Beyaz", "Altın", "Gümüş", "Mor", "Mavi", "Yeşil", "Kırmızı"],
+  storage: ["64 GB", "128 GB", "256 GB", "512 GB", "1 TB"],
+  origin: ["Yurt içi", "Yurt dışı"],
+  warranty: ["Distribütör Garantili", "İthalatçı Garantili", "Garantisi Yok"],
+  exchangeable: ["Evet", "Hayır"],
+};
 
 // ─── Internal types ─────────────────────────────────────────────────────────────
 
@@ -78,6 +96,7 @@ type Phase = "upload" | "analyzing" | "review" | "publishing" | "done";
 
 export interface BatchUploadPanelProps {
   autoPublish: boolean;
+  domain: string;
   onBatchComplete?: (stats: { done: number; errors: number }) => void;
 }
 
@@ -91,7 +110,7 @@ function calcAvgConfidence(draft: ListingDraft): number {
   if (draft.fieldConfidence) {
     const vals = Object.values(draft.fieldConfidence) as number[];
     if (vals.length)
-      return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+      return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100);
   }
   return Math.round(draft.confidence * 100);
 }
@@ -195,12 +214,14 @@ interface EditAnalysisModalProps {
     key: keyof ListingDraft,
     value: ListingDraft[keyof ListingDraft],
   ) => void;
+  domain: string;
 }
 
 function EditAnalysisModal({
   item,
   onClose,
   onUpdateField,
+  domain,
 }: EditAnalysisModalProps) {
   const draft = item?.draft;
 
@@ -320,7 +341,15 @@ function EditAnalysisModal({
 
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                {EDITABLE_FIELDS.map((field) => {
+                {EDITABLE_FIELDS.filter(field => {
+                  if (domain === "Akıllı Telefon") {
+                    // Hide car specific fields
+                    return !["series", "vehicleType", "partCategory"].includes(field);
+                  } else {
+                    // Hide smartphone specific fields
+                    return !["color", "storage", "origin", "warranty", "exchangeable"].includes(field);
+                  }
+                }).map((field) => {
                   const isDesc = field === "description";
                   const label = FIELD_LABELS[field] ?? String(field);
                   const rawVal = draft[field];
@@ -344,6 +373,17 @@ function EditAnalysisModal({
                           onChange={(e) => handleChange(field, e.target.value)}
                           className={`${INPUT_BASE} min-h-32 resize-y`}
                         />
+                      ) : domain === "Akıllı Telefon" && field in PHONE_OPTIONS ? (
+                        <select
+                          value={strVal}
+                          onChange={(e) => handleChange(field, e.target.value)}
+                          className={INPUT_BASE}
+                        >
+                          <option value="">Seçiniz</option>
+                          {PHONE_OPTIONS[field as keyof typeof PHONE_OPTIONS].map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       ) : (
                         <input
                           type={field === "price" ? "number" : "text"}
@@ -381,6 +421,7 @@ interface ReviewTableProps {
   onToggleApprove: (id: string) => void;
   onEdit: (id: string) => void;
   showStatusColumn?: boolean;
+  domain: string;
 }
 
 function ReviewTable({
@@ -388,6 +429,7 @@ function ReviewTable({
   onToggleSelect,
   onToggleApprove,
   onEdit,
+  domain,
   showStatusColumn = false,
 }: ReviewTableProps) {
   return (
@@ -452,7 +494,9 @@ function ReviewTable({
                         {[draft?.brand, draft?.model].filter(Boolean).join(" ")}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
-                        {draft?.series || "Seri bilgisi yok"}
+                        {domain === "Akıllı Telefon" 
+                          ? [draft?.color, draft?.storage, draft?.origin].filter(Boolean).join(" • ") || "Özellik bilgisi yok"
+                          : draft?.series || "Seri bilgisi yok"}
                       </p>
                     </div>
                   </td>
@@ -555,6 +599,7 @@ function ReviewTable({
 
 export function BatchUploadPanel({
   autoPublish,
+  domain,
   onBatchComplete,
 }: BatchUploadPanelProps) {
   const [phase, setPhase] = useState<Phase>("upload");
@@ -722,6 +767,7 @@ export function BatchUploadPanel({
       try {
         const fd = new FormData();
         fd.append("image", item.file);
+        fd.append("domain", domain);
         const res = await fetch("/api/analyze", { method: "POST", body: fd });
         const data: { ok: boolean; draft?: ListingDraft; error?: string } =
           await res.json();
@@ -850,6 +896,7 @@ export function BatchUploadPanel({
     <div className="w-full">
       <EditAnalysisModal
         item={editingItem}
+        domain={domain}
         onClose={() => setEditingItemId(null)}
         onUpdateField={(key, value) => {
           if (!editingItemId) return;
@@ -1083,6 +1130,7 @@ export function BatchUploadPanel({
             <div className="max-h-[520px] overflow-y-auto pr-1">
               <ReviewTable
                 items={items}
+                domain={domain}
                 onToggleSelect={toggleSelected}
                 onToggleApprove={toggleApproved}
                 onEdit={setEditingItemId}
@@ -1195,6 +1243,7 @@ export function BatchUploadPanel({
                 </div>
                 <ReviewTable
                   items={publishedItems}
+                  domain={domain}
                   onToggleSelect={() => undefined}
                   onToggleApprove={() => undefined}
                   onEdit={setEditingItemId}
