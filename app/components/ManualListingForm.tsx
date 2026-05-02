@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { 
-  Upload, 
-  ChevronDown, 
-  Smartphone, 
-  Type, 
-  FileText, 
-  X, 
+import {
+  Upload,
+  ChevronDown,
+  Smartphone,
+  Type,
+  FileText,
+  X,
   Image as ImageIcon,
   Loader2,
   CheckCircle2,
@@ -16,13 +16,14 @@ import {
   MapPin,
   Palette,
   HardDrive,
-  Banknote
+  Banknote,
+  ListPlus
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { 
-  BRANDS, 
-  SLOGANS, 
+import {
+  BRANDS,
+  SLOGANS,
   DEFAULT_DESCRIPTION,
   TOWNS,
   COLORS,
@@ -32,36 +33,67 @@ import type { ListingDraft } from "@/lib/types";
 
 interface ManualListingFormProps {
   onDraftCreated: (draft: ListingDraft) => void;
+  onAddToQueue?: (draft: ListingDraft, preview: string | null) => void;
   onCancel: () => void;
 }
 
-export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFormProps) {
+export function ManualListingForm({ onDraftCreated, onAddToQueue, onCancel }: ManualListingFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [selectedBrand, setSelectedBrand] = useState(BRANDS[0].name);
   const [selectedModel, setSelectedModel] = useState(BRANDS[0].models[0]);
   const [selectedSlogan, setSelectedSlogan] = useState(SLOGANS[1]); // Default to "BOL BOL AL,BÖL BÖL ÖDE SIFIR"
-  
+
   const [selectedTown, setSelectedTown] = useState("");
   const [selectedColor, setSelectedColor] = useState("");
-  const [selectedStorage, setSelectedStorage] = useState("");
-  const [selectedPrice, setSelectedPrice] = useState("45000");
+  const [selectedStorage, setSelectedStorage] = useState("256 GB");
+  const [selectedPrice, setSelectedPrice] = useState(() => {
+    // Random price 52,000–54,000 rounded to nearest 10
+    const raw = 52000 + Math.floor(Math.random() * 2001);
+    return String(Math.round(raw / 10) * 10);
+  });
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isAddingToQueue, setIsAddingToQueue] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Clipboard Paste Support ───────────────────────────────────────────────
+  const processFile = (f: File) => {
+    if (!f.type.startsWith("image/")) {
+      toast.error("Lütfen bir görsel seçin.");
+      return;
+    }
+    setFile(f);
+    const url = URL.createObjectURL(f);
+    setPreview(url);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) {
-      if (!f.type.startsWith("image/")) {
-        toast.error("Lütfen bir görsel seçin.");
-        return;
+    if (f) processFile(f);
+  };
+
+  // Listen for global paste events inside the form
+  const handlePaste = (e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) {
+          processFile(f);
+          toast.success("Görsel panodan yapıştırıldı!");
+          break;
+        }
       }
-      setFile(f);
-      const url = URL.createObjectURL(f);
-      setPreview(url);
     }
   };
+
+  useEffect(() => {
+    window.addEventListener("paste", handlePaste as any);
+    return () => window.removeEventListener("paste", handlePaste as any);
+  }, []);
 
   const handleBrandChange = (brandName: string) => {
     setSelectedBrand(brandName);
@@ -71,13 +103,60 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
     }
   };
 
-  const handleSubmit = async () => {
+  // Build a draft object from current form state + upload result
+  const buildDraft = (imageUrl: string, imagePath: string): ListingDraft => {
+    const nameParts = [selectedSlogan, selectedModel];
+    if (selectedStorage) nameParts.push(selectedStorage);
+    if (selectedColor) nameParts.push(selectedColor);
+    const listingName = nameParts.join(" ").toUpperCase();
+
+    return {
+      _id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: listingName,
+      slug: listingName.toLowerCase().replace(/\s+/g, "-"),
+      brand: selectedBrand,
+      model: selectedModel,
+      series: selectedModel,
+      product: selectedModel,
+      productType: "Akıllı Telefon",
+      vehicleType: selectedBrand,
+      condition: "Sıfır",
+      category: "Cep Telefonu",
+      partCategory: selectedModel,
+      price: Number(selectedPrice) || 45000,
+      description: DEFAULT_DESCRIPTION,
+      color: selectedColor || undefined,
+      storage: selectedStorage || undefined,
+      town: selectedTown || undefined,
+      imageUrl,
+      imagePath,
+      inStock: true,
+      createdAt: new Date().toISOString(),
+      categoryPath: ["İkinci El ve Sıfır Alışveriş", "Cep Telefonu", "Modeller", selectedBrand, selectedModel],
+      confidence: 1.0,
+      fieldConfidence: {
+        brand: 1.0,
+        model: 1.0,
+        vehicleType: 1.0,
+        partCategory: 1.0,
+        product: 1.0,
+      },
+      sourceHints: ["Manuel Giriş"],
+      warnings: [],
+    };
+  };
+
+  const uploadImageAndRun = async (
+    action: "create" | "queue"
+  ) => {
     if (!file) {
       toast.error("Lütfen bir görsel yükleyin.");
       return;
     }
 
-    setIsUploading(true);
+    if (action === "create") setIsUploading(true);
+    else setIsAddingToQueue(true);
+
     const formData = new FormData();
     formData.append("image", file);
 
@@ -93,56 +172,35 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
         throw new Error(result.error || "Görsel yüklenemedi.");
       }
 
-      // Construct the listing name: slogan + model + storage + color
-      const nameParts = [selectedSlogan, selectedModel];
-      if (selectedStorage) nameParts.push(selectedStorage);
-      if (selectedColor) nameParts.push(selectedColor);
-      const listingName = nameParts.join(" ").toUpperCase();
+      const draft = buildDraft(result.imageUrl, result.imagePath);
 
-      const draft: ListingDraft = {
-        _id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        name: listingName,
-        slug: listingName.toLowerCase().replace(/\s+/g, "-"),
-        brand: selectedBrand,
-        model: selectedModel,
-        series: selectedModel,
-        product: selectedModel,
-        productType: "Akıllı Telefon",
-        vehicleType: selectedBrand,
-        condition: "Sıfır",
-        category: "Cep Telefonu",
-        partCategory: selectedModel,
-        price: Number(selectedPrice) || 45000,
-        description: DEFAULT_DESCRIPTION,
-        color: selectedColor || undefined,
-        storage: selectedStorage || undefined,
-        town: selectedTown || undefined,
-        imageUrl: result.imageUrl,
-        imagePath: result.imagePath,
-        inStock: true,
-        createdAt: new Date().toISOString(),
-        categoryPath: ["İkinci El ve Sıfır Alışveriş", "Cep Telefonu", "Modeller", selectedBrand, selectedModel],
-        confidence: 1.0,
-        fieldConfidence: {
-          brand: 1.0,
-          model: 1.0,
-          vehicleType: 1.0,
-          partCategory: 1.0,
-          product: 1.0,
-        },
-        sourceHints: ["Manuel Giriş"],
-        warnings: [],
-      };
-
-      onDraftCreated(draft);
-      toast.success("İlan taslağı oluşturuldu!");
+      if (action === "create") {
+        onDraftCreated(draft);
+        toast.success("İlan taslağı oluşturuldu!");
+      } else {
+        onAddToQueue?.(draft, preview);
+        toast.success("İlan kuyruğa eklendi!", {
+          description: draft.name,
+        });
+        // Reset form for the next listing
+        setFile(null);
+        setPreview(null);
+        setSelectedStorage("256 GB");
+        setSelectedColor("");
+        setSelectedTown("");
+        setSelectedPrice(String(Math.round((52000 + Math.floor(Math.random() * 2001)) / 10) * 10));
+      }
     } catch (error) {
       console.error("Manual upload error:", error);
       toast.error(error instanceof Error ? error.message : "Bir hata oluştu.");
     } finally {
       setIsUploading(false);
+      setIsAddingToQueue(false);
     }
   };
+
+  const handleSubmit = () => uploadImageAndRun("create");
+  const handleAddToQueue = () => uploadImageAndRun("queue");
 
   const inputBase = "w-full rounded-xl border border-zinc-800 bg-[#0d1117] px-3 py-3 text-sm text-zinc-200 outline-none focus:border-[#11F08E]/50 transition-all";
   const selectBase = "w-full rounded-xl border border-zinc-800 bg-[#0d1117] px-3 py-3 text-sm text-zinc-200 outline-none appearance-none focus:border-[#11F08E]/50 transition-all cursor-pointer";
@@ -159,23 +217,25 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
           <Type className="text-[#11F08E]" />
           Manuel İlan
         </h2>
-        <button
-          onClick={onCancel}
-          className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          <X className="w-6 h-6" />
-        </button>
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        )}
       </div>
 
       {/* ── Form Content ──────────────────────────────────────────────────── */}
       <div className="space-y-5 rounded-[28px] border border-white/5 bg-[#19202C]/95 p-5 sm:p-7">
-        
+
         {/* Görsel Yükleme */}
         <div className="space-y-2">
           <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
             <ImageIcon className="w-3 h-3" /> İlan Görseli
           </label>
-          <div 
+          <div
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               "relative group flex flex-col items-center justify-center aspect-video rounded-2xl border-2 border-dashed transition-all cursor-pointer overflow-hidden",
@@ -196,12 +256,12 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
                 <span className="text-[10px] text-zinc-600 mt-1 uppercase tracking-wider">PNG, JPG (MAX 10MB)</span>
               </>
             )}
-            <input 
+            <input
               ref={fileInputRef}
-              type="file" 
-              accept="image/*" 
-              className="hidden" 
-              onChange={handleFileChange} 
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
             />
           </div>
         </div>
@@ -213,8 +273,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
               <Smartphone className="w-3 h-3" /> Marka
             </label>
             <div className="relative">
-              <select 
-                value={selectedBrand} 
+              <select
+                value={selectedBrand}
                 onChange={(e) => handleBrandChange(e.target.value)}
                 className={selectBase}
               >
@@ -231,8 +291,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
               <Smartphone className="w-3 h-3" /> Model
             </label>
             <div className="relative">
-              <select 
-                value={selectedModel} 
+              <select
+                value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className={selectBase}
               >
@@ -252,8 +312,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
               <MapPin className="w-3 h-3" /> İlçe
             </label>
             <div className="relative">
-              <select 
-                value={selectedTown} 
+              <select
+                value={selectedTown}
                 onChange={(e) => setSelectedTown(e.target.value)}
                 className={selectBase}
               >
@@ -271,8 +331,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
               <Palette className="w-3 h-3" /> Renk
             </label>
             <div className="relative">
-              <select 
-                value={selectedColor} 
+              <select
+                value={selectedColor}
                 onChange={(e) => setSelectedColor(e.target.value)}
                 className={selectBase}
               >
@@ -292,7 +352,7 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
             <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
               <Banknote className="w-3 h-3" /> Fiyat (TL)
             </label>
-            <input 
+            <input
               type="number"
               value={selectedPrice}
               onChange={(e) => setSelectedPrice(e.target.value)}
@@ -306,8 +366,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
               <HardDrive className="w-3 h-3" /> Depolama Kapasitesi
             </label>
             <div className="relative">
-              <select 
-                value={selectedStorage} 
+              <select
+                value={selectedStorage}
                 onChange={(e) => setSelectedStorage(e.target.value)}
                 className={selectBase}
               >
@@ -327,8 +387,8 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
             <Type className="w-3 h-3" /> Başlık Sloganı
           </label>
           <div className="relative">
-            <select 
-              value={selectedSlogan} 
+            <select
+              value={selectedSlogan}
               onChange={(e) => setSelectedSlogan(e.target.value)}
               className={selectBase}
             >
@@ -340,7 +400,7 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
           </div>
           <p className="text-[11px] text-zinc-600 italic">
             Oluşturulacak Başlık: <span className="text-[#11F08E] font-bold">
-              {[selectedSlogan, selectedModel, selectedStorage, selectedColor].filter(Boolean).join(" ").toUpperCase()}
+              {[selectedSlogan, selectedModel, selectedStorage].filter(Boolean).join(" ").toUpperCase()}
             </span>
           </p>
         </div>
@@ -351,9 +411,9 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
             <FileText className="w-3 h-3" /> Açıklama (Varsayılan)
           </label>
           <div className="relative">
-            <textarea 
-              readOnly 
-              value={DEFAULT_DESCRIPTION} 
+            <textarea
+              readOnly
+              value={DEFAULT_DESCRIPTION}
               className={cn(inputBase, "h-32 text-[11px] bg-black/40 border-zinc-900 cursor-default")}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#19202C] via-transparent to-transparent pointer-events-none opacity-50" />
@@ -363,11 +423,11 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
         {/* Submit Button */}
         <button
           onClick={handleSubmit}
-          disabled={isUploading || !file}
+          disabled={isUploading || isAddingToQueue || !file}
           className={cn(
             "w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all",
-            isUploading || !file 
-              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" 
+            isUploading || isAddingToQueue || !file
+              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
               : "bg-[#11F08E] text-[#0d1117] hover:bg-[#0fd880] active:scale-[0.98] shadow-[0_10px_30px_rgba(17,240,142,0.2)]"
           )}
         >
@@ -383,6 +443,32 @@ export function ManualListingForm({ onDraftCreated, onCancel }: ManualListingFor
             </>
           )}
         </button>
+
+        {/* Add to Queue Button — only shown when onAddToQueue is provided */}
+        {onAddToQueue && (
+          <button
+            onClick={handleAddToQueue}
+            disabled={isUploading || isAddingToQueue || !file}
+            className={cn(
+              "w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all border-2",
+              isUploading || isAddingToQueue || !file
+                ? "border-zinc-700 bg-zinc-900 text-zinc-600 cursor-not-allowed"
+                : "border-[#11F08E]/40 bg-[#11F08E]/10 text-[#11F08E] hover:bg-[#11F08E]/20 active:scale-[0.98] shadow-[0_4px_16px_rgba(17,240,142,0.1)]"
+            )}
+          >
+            {isAddingToQueue ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Ekleniyor...
+              </>
+            ) : (
+              <>
+                <ListPlus className="w-5 h-5" />
+                Kuyruğa Ekle
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-3 px-2">
