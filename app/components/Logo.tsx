@@ -34,6 +34,7 @@ export default function Logo({ size = "md", className = "" }: LogoProps) {
         alt="Logo"
         className="w-[80%] h-[80%] object-contain relative z-10"
         draggable={false}
+        priority={true}
       />
     </div>
   );

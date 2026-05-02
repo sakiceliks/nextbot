@@ -55,6 +55,7 @@ import type { NavTab } from "./components/Navigation";
 import SplashScreen from "./components/SplashScreen";
 import { ListingPreview } from "./components/ListingPreview";
 import { BatchUploadPanel } from "./components/BatchUploadPanel";
+import { ManualListingForm } from "./components/ManualListingForm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,12 +101,10 @@ const STEPS = [
 
 const ANALYSIS_STAGES = [
   { at: 0, value: 5, label: "Bağlantı kuruluyor…" },
-  { at: 600, value: 18, label: "Görsel yükleniyor…" },
-  { at: 1800, value: 38, label: "Google Lens taranıyor…" },
-  { at: 4000, value: 62, label: "Lens sonuçları işleniyor…" },
-  { at: 6500, value: 82, label: "Groq AI analiz yapıyor…" },
-  { at: 9000, value: 94, label: "Sonuçlar hazırlanıyor…" },
-  { at: 10500, value: 100, label: "Tamamlandı!" },
+  { at: 600, value: 25, label: "Görsel yükleniyor…" },
+  { at: 2000, value: 65, label: "Llama 4 Vision analiz yapıyor…" },
+  { at: 5000, value: 94, label: "Sonuçlar hazırlanıyor…" },
+  { at: 6500, value: 100, label: "Tamamlandı!" },
 ] as const;
 
 const TIPS = [
@@ -267,7 +266,7 @@ function useFileUpload() {
     setError(null);
   }, []);
 
-  return { file, preview, error, setError, applyFile, clearFile };
+  return { file, preview, setPreview, error, setError, applyFile, clearFile };
 }
 
 function useLogs() {
@@ -340,6 +339,7 @@ export default function HomePage() {
   const {
     file,
     preview,
+    setPreview,
     error: fileError,
     setError,
     applyFile,
@@ -372,7 +372,6 @@ export default function HomePage() {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [autoPublish, setAutoPublish] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
-  const [selectedDomain, setSelectedDomain] = useState<"Yedek Parça" | "Akıllı Telefon">("Yedek Parça");
 
   // Transitions
   const [isAnalyzing, startAnalyzing] = useTransition();
@@ -532,7 +531,6 @@ export default function HomePage() {
 
       const formData = new FormData();
       formData.append("image", file);
-      formData.append("domain", selectedDomain);
 
       try {
         const res = await fetch("/api/analyze", {
@@ -660,7 +658,7 @@ export default function HomePage() {
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragActive(false);
-      
+
       if (isBatchMode) return;
 
       const dropped = Array.from(e.dataTransfer.files).find((f) =>
@@ -684,6 +682,17 @@ export default function HomePage() {
       if (tab === "scan") {
         if (step === 1) return;
         setActiveTab("scan");
+        setShowBrowserPanel(false);
+        setShowLogs(false);
+        if (step === 2) {
+          setDraft(null);
+          setReviewedForPublish(false);
+          setPublishSuccess(false);
+          setDirection(-1);
+          setStep(0);
+        }
+      } else if (tab === "manual") {
+        setActiveTab("manual");
         setShowBrowserPanel(false);
         setShowLogs(false);
         if (step === 2) {
@@ -777,11 +786,11 @@ export default function HomePage() {
                 "flex flex-col items-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold uppercase tracking-wide",
                 "transition-all duration-200 active:scale-95 disabled:opacity-40",
                 color === "zinc" &&
-                  "border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700",
+                "border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700",
                 color === "sky" &&
-                  "border-sky-600/30 bg-sky-600/10 text-sky-400 hover:bg-sky-600/20",
+                "border-sky-600/30 bg-sky-600/10 text-sky-400 hover:bg-sky-600/20",
                 color === "emerald" &&
-                  "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
+                "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
               )}
             >
               {isOpeningBrowser ? (
@@ -859,7 +868,7 @@ export default function HomePage() {
             >
               <Logo size="md" />
               <span className="font-black text-base tracking-widest uppercase">
-                Next<span className="text-emerald-400">bot</span>
+                İLAN<span className="text-emerald-400">LA</span>
               </span>
             </motion.div>
 
@@ -1013,28 +1022,11 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
-              
-              {/* Domain Selection for Batch Mode */}
-              <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5 mb-4">
-                {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
-                  <button
-                    key={domain}
-                    onClick={() => setSelectedDomain(domain)}
-                    className={cn(
-                      "flex-1 text-sm font-bold uppercase tracking-wider py-2.5 rounded-xl transition-all",
-                      selectedDomain === domain
-                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
-                        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-                    )}
-                  >
-                    {domain}
-                  </button>
-                ))}
-              </div>
+
+              {/* Domain Selection for Batch Mode removed */}
 
               <BatchUploadPanel
                 autoPublish={autoPublish}
-                domain={selectedDomain}
                 onBatchComplete={(stats) => {
                   // optionally handle completion
                   console.log("Batch complete:", stats);
@@ -1158,22 +1150,7 @@ export default function HomePage() {
                       </motion.button>
                     </div>
 
-                    <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5 mt-4">
-                      {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
-                        <button
-                          key={domain}
-                          onClick={() => setSelectedDomain(domain)}
-                          className={cn(
-                            "flex-1 text-sm font-bold uppercase tracking-wider py-3 rounded-xl transition-all",
-                            selectedDomain === domain
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
-                              : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-                          )}
-                        >
-                          {domain}
-                        </button>
-                      ))}
-                    </div>
+                    {/* Domain selection removed */}
                   </motion.div>
                 )}
 
@@ -1267,22 +1244,7 @@ export default function HomePage() {
                       </AnimatePresence>
                     </motion.div>
 
-                    <div className="flex bg-zinc-900/50 p-1.5 rounded-2xl border border-white/5">
-                      {(["Yedek Parça", "Akıllı Telefon"] as const).map((domain) => (
-                        <button
-                          key={domain}
-                          onClick={() => setSelectedDomain(domain)}
-                          className={cn(
-                            "flex-1 text-sm font-bold uppercase tracking-wider py-3 rounded-xl transition-all",
-                            selectedDomain === domain
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm"
-                              : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-                          )}
-                        >
-                          {domain}
-                        </button>
-                      ))}
-                    </div>
+                    {/* Domain selection removed */}
 
                     {file && (
                       <motion.button
@@ -1327,6 +1289,19 @@ export default function HomePage() {
                       ))}
                     </motion.div>
                   </motion.div>
+                )}
+
+                {/* Step 0: Manual Entry */}
+                {step === 0 && activeTab === "manual" && (
+                  <ManualListingForm
+                    onCancel={() => handleTabChange("home")}
+                    onDraftCreated={(newDraft) => {
+                      setDraft(newDraft);
+                      setPreview(newDraft.imageUrl);
+                      setDirection(1);
+                      setStep(2);
+                    }}
+                  />
                 )}
 
                 {/* Step 1: Analyzing */}

@@ -23,11 +23,11 @@ export function resolveChromeExecutable() {
   }
 
   const candidates = [
-    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    path.join(os.homedir(), "Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
-    path.join(os.homedir(), "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    path.join(os.homedir(), "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    path.join(os.homedir(), "Applications/Brave Browser.app/Contents/MacOS/Brave Browser")
   ];
 
   return candidates.find(existsSync) || candidates[0];

@@ -47,6 +47,8 @@ export type ListingDraft = {
   origin?: string;
   warranty?: string;
   exchangeable?: string;
+  town?: string;
+  quarter?: string;
   imageUrl: string;
   imagePath: string;
   inStock: boolean;

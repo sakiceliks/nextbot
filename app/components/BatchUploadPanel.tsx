@@ -96,7 +96,6 @@ type Phase = "upload" | "analyzing" | "review" | "publishing" | "done";
 
 export interface BatchUploadPanelProps {
   autoPublish: boolean;
-  domain: string;
   onBatchComplete?: (stats: { done: number; errors: number }) => void;
 }
 
@@ -214,14 +213,12 @@ interface EditAnalysisModalProps {
     key: keyof ListingDraft,
     value: ListingDraft[keyof ListingDraft],
   ) => void;
-  domain: string;
 }
 
 function EditAnalysisModal({
   item,
   onClose,
   onUpdateField,
-  domain,
 }: EditAnalysisModalProps) {
   const draft = item?.draft;
 
@@ -342,13 +339,8 @@ function EditAnalysisModal({
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 {EDITABLE_FIELDS.filter(field => {
-                  if (domain === "Akıllı Telefon") {
-                    // Hide car specific fields
-                    return !["series", "vehicleType", "partCategory"].includes(field);
-                  } else {
-                    // Hide smartphone specific fields
-                    return !["color", "storage", "origin", "warranty", "exchangeable"].includes(field);
-                  }
+                  // Sadece akıllı telefon alanlarını göster, yedek parça alanlarını gizle
+                  return !["series", "vehicleType", "partCategory"].includes(field);
                 }).map((field) => {
                   const isDesc = field === "description";
                   const label = FIELD_LABELS[field] ?? String(field);
@@ -373,7 +365,7 @@ function EditAnalysisModal({
                           onChange={(e) => handleChange(field, e.target.value)}
                           className={`${INPUT_BASE} min-h-32 resize-y`}
                         />
-                      ) : domain === "Akıllı Telefon" && field in PHONE_OPTIONS ? (
+                      ) : field in PHONE_OPTIONS ? (
                         <select
                           value={strVal}
                           onChange={(e) => handleChange(field, e.target.value)}
@@ -421,7 +413,6 @@ interface ReviewTableProps {
   onToggleApprove: (id: string) => void;
   onEdit: (id: string) => void;
   showStatusColumn?: boolean;
-  domain: string;
 }
 
 function ReviewTable({
@@ -429,7 +420,6 @@ function ReviewTable({
   onToggleSelect,
   onToggleApprove,
   onEdit,
-  domain,
   showStatusColumn = false,
 }: ReviewTableProps) {
   return (
@@ -494,9 +484,7 @@ function ReviewTable({
                         {[draft?.brand, draft?.model].filter(Boolean).join(" ")}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
-                        {domain === "Akıllı Telefon" 
-                          ? [draft?.color, draft?.storage, draft?.origin].filter(Boolean).join(" • ") || "Özellik bilgisi yok"
-                          : draft?.series || "Seri bilgisi yok"}
+                        {[draft?.color, draft?.storage, draft?.origin].filter(Boolean).join(" • ") || "Özellik bilgisi yok"}
                       </p>
                     </div>
                   </td>
@@ -599,7 +587,6 @@ function ReviewTable({
 
 export function BatchUploadPanel({
   autoPublish,
-  domain,
   onBatchComplete,
 }: BatchUploadPanelProps) {
   const [phase, setPhase] = useState<Phase>("upload");
@@ -767,7 +754,6 @@ export function BatchUploadPanel({
       try {
         const fd = new FormData();
         fd.append("image", item.file);
-        fd.append("domain", domain);
         const res = await fetch("/api/analyze", { method: "POST", body: fd });
         const data: { ok: boolean; draft?: ListingDraft; error?: string } =
           await res.json();
@@ -896,7 +882,6 @@ export function BatchUploadPanel({
     <div className="w-full">
       <EditAnalysisModal
         item={editingItem}
-        domain={domain}
         onClose={() => setEditingItemId(null)}
         onUpdateField={(key, value) => {
           if (!editingItemId) return;
@@ -1130,7 +1115,6 @@ export function BatchUploadPanel({
             <div className="max-h-[520px] overflow-y-auto pr-1">
               <ReviewTable
                 items={items}
-                domain={domain}
                 onToggleSelect={toggleSelected}
                 onToggleApprove={toggleApproved}
                 onEdit={setEditingItemId}

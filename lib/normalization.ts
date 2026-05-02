@@ -1,14 +1,7 @@
 import slugify from "slugify";
 import { z } from "zod";
 
-import {
-  AUTO_CATEGORIES,
-  CATEGORY_OPTIONS,
-  DEFAULT_CONDITION,
-  SAHIBINDEN_ROOT_PATH,
-  VEHICLE_TYPES,
-  VEHICLE_TYPE_OPTIONS
-} from "@/lib/catalog";
+import { DEFAULT_CONDITION } from "@/lib/catalog";
 import type { ListingDraft, ListingFieldConfidence } from "@/lib/types";
 
 const RawGroqDraftSchema = z.object({
@@ -28,7 +21,6 @@ const RawGroqDraftSchema = z.object({
   origin: z.string().nullish(),
   warranty: z.string().nullish(),
   exchangeable: z.string().nullish(),
-  sourceHints: z.array(z.string().nullish()).nullish(),
   confidence: z.number().min(0).max(1).nullish(),
   fieldConfidence: z
     .object({
@@ -41,49 +33,6 @@ const RawGroqDraftSchema = z.object({
     .nullish()
 });
 
-function normalizedText(value: string) {
-  return value
-    .toLocaleLowerCase("tr-TR")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findVehicleTypeByBrandModel(brand: string, model: string) {
-  const normalizedBrand = normalizedText(brand);
-  const normalizedModel = normalizedText(model);
-
-  for (const vehicleType of VEHICLE_TYPES) {
-    for (const reference of vehicleType.brands) {
-      if (normalizedText(reference.marka) !== normalizedBrand) {
-        continue;
-      }
-
-      if (reference.modeller.some((item) => normalizedText(item) === normalizedModel)) {
-        return vehicleType.name;
-      }
-
-      if (!normalizedModel && reference.modeller.length > 0) {
-        return vehicleType.name;
-      }
-    }
-  }
-
-  return null;
-}
-
-function findPartCategory(...values: string[]) {
-  const text = normalizedText(values.filter(Boolean).join(" "));
-
-  for (const category of AUTO_CATEGORIES) {
-    if (category.keywords.some((keyword) => text.includes(normalizedText(keyword)))) {
-      return category.label;
-    }
-  }
-
-  return null;
-}
-
 function deriveFieldConfidence(raw?: any): ListingFieldConfidence {
   return {
     brand: raw?.brand ?? 0.5,
@@ -94,93 +43,33 @@ function deriveFieldConfidence(raw?: any): ListingFieldConfidence {
   };
 }
 
-function fixedListingPrice() {
-  const raw = Number(process.env.FIXED_LISTING_PRICE ?? "1111");
-  return Number.isFinite(raw) && raw > 0 ? raw : 1111;
+export function buildListingName(brand: string, model: string, product: string) {
+  return [brand, model, product].filter(Boolean).join(" ").trim().toUpperCase();
 }
 
-function fixedListingDescription() {
-  return (
-    process.env.FIXED_LISTING_DESCRIPTION ??
-    "Parca temiz durumda olup detaylar icin iletisime gecebilirsiniz."
-  );
-}
-
-export function buildListingName(brand: string, model: string, product: string, domain?: string) {
-  const parts = [brand, model, product];
-  if (domain !== "Akıllı Telefon") {
-    parts.push("ÇIKMA ORİJİNAL");
-  }
-  return parts.filter(Boolean).join(" ").trim().toUpperCase();
-}
-
-export function normalizeListingDraft(input: unknown, context: { imageUrl: string; imagePath: string; domain?: string }) {
+export function normalizeListingDraft(input: unknown, context: { imageUrl: string; imagePath: string }) {
   const raw = RawGroqDraftSchema.parse(input);
   const warnings: string[] = [];
-  const sourceHints = ((raw.sourceHints || []) as string[]).filter(Boolean);
   const fieldConfidence = deriveFieldConfidence(raw.fieldConfidence);
 
   const brand = (raw.brand ?? "").trim();
   const model = (raw.model ?? "").trim();
   const product = (raw.product ?? "").trim();
-  const domain = context.domain || "Yedek Parça";
 
-  let vehicleType = (raw.vehicleType ?? "").trim() || "Belirsiz";
-  let partCategory = (raw.partCategory ?? "").trim() || "Belirsiz";
-  let category = domain;
-
-  if (domain === "Yedek Parça") {
-    vehicleType = raw.vehicleType?.trim() || findVehicleTypeByBrandModel(brand, model) || "Otomobil & Arazi Aracı";
-    if (!VEHICLE_TYPE_OPTIONS.includes(vehicleType)) {
-      warnings.push(`Arac tipi referans listesinde dogrulanamadi: ${vehicleType}`);
-    }
-
-    partCategory = raw.partCategory?.trim() || findPartCategory(product, sourceHints.join(" ")) || "Kaporta & Karoser";
-    if (!CATEGORY_OPTIONS.includes(partCategory)) {
-      warnings.push(`Parca kategorisi keyword fallback ile de tam eslesmedi: ${partCategory}`);
-    }
-  } else if (domain === "Akıllı Telefon") {
-    vehicleType = raw.vehicleType?.trim() || brand || "Apple";
-    partCategory = raw.partCategory?.trim() || model || "iPhone";
-    category = "Cep Telefonu";
-  }
+  const vehicleType = raw.vehicleType?.trim() || brand || "Apple";
+  const partCategory = raw.partCategory?.trim() || model || "iPhone";
+  const category = "Cep Telefonu";
 
   const series = (raw.series ?? "").trim() || model;
   const productType = (raw.productType ?? "").trim() || product;
   const condition = (raw.condition ?? "").trim() || DEFAULT_CONDITION;
-  const name = buildListingName(brand, model, product, domain);
+  const name = buildListingName(brand, model, product);
   const slug = slugify(name, { lower: true, strict: true, locale: "tr" });
 
-  if (fieldConfidence.brand < 0.65) {
-    warnings.push("Marka dusuk guvenle tespit edildi.");
-  }
-  if (fieldConfidence.model < 0.65) {
-    warnings.push("Model dusuk guvenle tespit edildi.");
-  }
-  if (fieldConfidence.vehicleType < 0.65) {
-    warnings.push("Arac tipi dusuk guvenle tespit edildi.");
-  }
-  if (fieldConfidence.partCategory < 0.65) {
-    warnings.push("Parca kategorisi dusuk guvenle tespit edildi.");
-  }
+  if (fieldConfidence.brand < 0.65) warnings.push("Marka dusuk guvenle tespit edildi.");
+  if (fieldConfidence.model < 0.65) warnings.push("Model dusuk guvenle tespit edildi.");
 
-  const confidence =
-    raw.confidence ??
-    Number(
-      (
-        (fieldConfidence.brand +
-          fieldConfidence.model +
-          fieldConfidence.vehicleType +
-          fieldConfidence.partCategory +
-          fieldConfidence.product) /
-        5
-      ).toFixed(2)
-    );
-
-  const fallbackPrice = domain === "Akıllı Telefon" ? 25000 : fixedListingPrice();
-  const fallbackDesc = domain === "Akıllı Telefon"
-    ? "Cihaz kozmetik olarak temiz durumdadır. Tüm fonksiyonları aktif olarak çalışmaktadır. Detaylı bilgi için iletişime geçebilirsiniz."
-    : fixedListingDescription();
+  const confidence = raw.confidence ?? 0.85;
 
   const draft: ListingDraft = {
     _id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -195,23 +84,21 @@ export function normalizeListingDraft(input: unknown, context: { imageUrl: strin
     condition,
     category,
     partCategory,
-    price: raw.price ?? fallbackPrice,
-    description: raw.description?.trim() || fallbackDesc,
-    color: raw.color?.trim() || (domain === "Akıllı Telefon" ? "Siyah" : undefined),
-    storage: raw.storage?.trim() || (domain === "Akıllı Telefon" ? "128 GB" : undefined),
-    origin: raw.origin?.trim() || (domain === "Akıllı Telefon" ? "Yurt içi" : undefined),
-    warranty: raw.warranty?.trim() || (domain === "Akıllı Telefon" ? "Garantisi Yok" : undefined),
-    exchangeable: raw.exchangeable?.trim() || (domain === "Akıllı Telefon" ? "Hayır" : undefined),
+    price: raw.price ?? 25000,
+    description: raw.description?.trim() || "Cihaz kozmetik olarak temiz durumdadır. Tüm fonksiyonları aktif olarak çalışmaktadır.",
+    color: raw.color?.trim() || "Siyah",
+    storage: raw.storage?.trim() || "128 GB",
+    origin: raw.origin?.trim() || "Yurt içi",
+    warranty: raw.warranty?.trim() || "Garantisi Yok",
+    exchangeable: raw.exchangeable?.trim() || "Hayır",
     imageUrl: context.imageUrl,
     imagePath: context.imagePath,
     inStock: true,
     createdAt: new Date().toISOString(),
-    categoryPath: domain === "Akıllı Telefon" 
-      ? ["İkinci El ve Sıfır Alışveriş", "Cep Telefonu", "Modeller", vehicleType, partCategory]
-      : [...SAHIBINDEN_ROOT_PATH, category, vehicleType, partCategory],
+    categoryPath: ["İkinci El ve Sıfır Alışveriş", "Cep Telefonu", "Modeller", vehicleType, partCategory],
     confidence,
     fieldConfidence,
-    sourceHints,
+    sourceHints: [],
     warnings
   };
 

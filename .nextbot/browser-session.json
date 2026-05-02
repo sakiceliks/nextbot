@@ -2,5 +2,5 @@
   "port": 9222,
   "targetUrl": "https://banaozel.sahibinden.com/giris",
   "userDataDir": "/Users/sakicelik/Documents/GitHub/nextbot/chrome-profile",
-  "executablePath": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+  "executablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 }

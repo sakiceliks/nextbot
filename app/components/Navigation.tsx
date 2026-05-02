@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe, House, ScrollText, ScanLine, Settings } from "lucide-react";
+import { Globe, House, FileText, ScanLine, ScrollText } from "lucide-react";
 
-export type NavTab = "home" | "scan" | "logs" | "browser";
+export type NavTab = "home" | "manual" | "scan" | "logs" | "browser";
 
 interface NavigationProps {
   activeTab: NavTab;
@@ -14,14 +14,9 @@ interface NavigationProps {
 
 const TABS = [
   { key: "home" as NavTab, label: "Ana Sayfa", icon: House },
-  { key: "logs" as NavTab, label: "Loglar", icon: ScrollText },
+  { key: "manual" as NavTab, label: "Manuel", icon: ScrollText },
+  { key: "logs" as NavTab, label: "Loglar", icon: FileText },
   { key: "browser" as NavTab, label: "Tarayıcı", icon: Globe },
-  {
-    key: "settings" as const,
-    label: "Ayarlar",
-    icon: Settings,
-    disabled: true,
-  },
 ] as const;
 
 export default function Navigation({
