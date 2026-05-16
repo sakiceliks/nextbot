@@ -62,7 +62,7 @@ const INPUT_BASE =
   "w-full rounded-xl border border-zinc-800 bg-[#0d1117] px-3 py-2 text-sm text-zinc-200 outline-none focus:border-[#11F08E]/50 transition-colors";
 
 const PHONE_OPTIONS = {
-  color: ["Beyaz", "Lacivert", "Gümüş", "Turuncu"],
+  color: ["Lacivert", "Gümüş", "Turuncu"],
   storage: ["64 GB", "128 GB", "256 GB", "512 GB", "1 TB"],
   origin: ["Yurt içi", "Yurt dışı"],
   warranty: ["Distribütör Garantili", "İthalatçı Garantili", "Garantisi Yok"],

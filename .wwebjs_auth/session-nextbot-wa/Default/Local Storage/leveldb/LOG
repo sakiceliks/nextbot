@@ -1,0 +1,12 @@
+2026/05/06-12:25:08.444 f0128 Reusing MANIFEST /Users/sakicelik/Documents/GitHub/nextbot/.wwebjs_auth/session-nextbot-wa/Default/Local Storage/leveldb/MANIFEST-000001
+2026/05/06-12:25:08.447 f0128 Recovering log #4
+2026/05/06-12:25:08.448 f0128 Reusing old log /Users/sakicelik/Documents/GitHub/nextbot/.wwebjs_auth/session-nextbot-wa/Default/Local Storage/leveldb/000004.log 
+2026/05/06-15:05:24.445 f0128 Level-0 table #8: started
+2026/05/06-15:05:24.453 f0128 Level-0 table #8: 12493 bytes OK
+2026/05/06-15:05:24.470 f0128 Delete type=0 #4
+2026/05/06-21:15:42.170 f012b Level-0 table #10: started
+2026/05/06-21:15:42.176 f012b Level-0 table #10: 14780 bytes OK
+2026/05/06-21:15:42.179 f012b Delete type=0 #7
+2026/05/07-01:20:36.840 f012b Level-0 table #12: started
+2026/05/07-01:20:36.849 f012b Level-0 table #12: 15006 bytes OK
+2026/05/07-01:20:36.853 f012b Delete type=0 #9

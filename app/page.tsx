@@ -4,1551 +4,498 @@ import {
   useEffect,
   useRef,
   useState,
-  useTransition,
   useCallback,
-  useMemo,
-  memo,
 } from "react";
 import {
   AnimatePresence,
   motion,
-  useAnimation,
-  useMotionValue,
-  useTransform,
-  PanInfo,
 } from "framer-motion";
-import Lottie from "lottie-react";
 import {
-  ChevronDown,
-  ChevronUp,
-  FileText,
-  Globe,
-  ImageIcon,
-  Info,
-  Lightbulb,
-  Loader2,
-  LogIn,
   RotateCcw,
-  ScanLine,
-  Upload,
-  WifiOff,
   CheckCircle2,
   AlertCircle,
   X,
-  ZoomIn,
   Zap,
   History,
   Layers,
+  Plus,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
-import { SAHIBINDEN_ROOT_PATH } from "@/lib/catalog";
 import type { ListingDraft } from "@/lib/types";
-import { scanLottie } from "./lottie";
-
-import Logo from "./components/Logo";
-import Stepper from "./components/Stepper";
-import Navigation from "./components/Navigation";
-import type { NavTab } from "./components/Navigation";
 import SplashScreen from "./components/SplashScreen";
-import { ListingPreview } from "./components/ListingPreview";
-import { BatchUploadPanel } from "./components/BatchUploadPanel";
 import { ManualListingForm } from "./components/ManualListingForm";
+import { BulkAddModal } from "./components/BulkAddModal";
 import { PublishQueue } from "./components/PublishQueue";
 import type { QueueItem } from "./components/PublishQueue";
+import { SahibindenAuthStatus } from "./components/SahibindenAuthStatus";
+import { WhatsAppDashboard } from "./components/WhatsAppDashboard";
+import { BotSettings } from "./components/BotSettings";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type AnalyzeResponse = {
-  ok: boolean;
-  error?: string;
-  draft?: ListingDraft;
-  lensRaw?: unknown;
-};
-
-type PublishResponse = {
-  ok: boolean;
-  error?: string;
-  logs?: string[];
-};
-
-type BrowserSessionResponse = {
-  ok: boolean;
-  error?: string;
-  executablePath?: string;
-  userDataDir?: string;
-  targetUrl?: string;
-};
-
-type BrowserStatus = "logged-in" | "logged-out" | "browser-closed" | "unknown";
-
-type BrowserStatusResponse = {
-  ok: boolean;
-  status: BrowserStatus;
-  browserRunning: boolean;
-  currentUrl?: string;
-  message: string;
-  logs: string[];
-};
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STEPS = [
-  { id: "upload", label: "Görsel", icon: Upload },
-  { id: "analyze", label: "Analiz", icon: ScanLine },
-  { id: "publish", label: "Yayın", icon: Globe },
-] as const;
-
-const ANALYSIS_STAGES = [
-  { at: 0, value: 5, label: "Bağlantı kuruluyor…" },
-  { at: 600, value: 25, label: "Görsel yükleniyor…" },
-  { at: 2000, value: 65, label: "Llama 4 Vision analiz yapıyor…" },
-  { at: 5000, value: 94, label: "Sonuçlar hazırlanıyor…" },
-  { at: 6500, value: 100, label: "Tamamlandı!" },
-] as const;
-
-const TIPS = [
-  {
-    id: "lighting",
-    title: "İyi aydınlatma",
-    body: "Yeterli ışık sağlayın; sert gölgelerden ve parlak yansımalardan kaçının.",
-    icon: "☀️",
-  },
-  {
-    id: "clean",
-    title: "Temiz parça",
-    body: "Tarama öncesi parçayı temizleyin; kir ve yağ AI doğruluğunu düşürür.",
-    icon: "✨",
-  },
-  {
-    id: "background",
-    title: "Sade arka plan",
-    body: "Parçayla zıt, düz renk bir zemin üzerinde çekim yapın.",
-    icon: "🎯",
-  },
-] as const;
-
-const BROWSER_STATUS_CONFIG: Record<
-  BrowserStatus,
-  {
-    label: string;
-    color: string;
-    bg: string;
-    dot: string;
-    icon: React.ElementType;
-    description: string;
-  }
-> = {
-  "logged-in": {
-    label: "Bağlı",
-    color: "text-emerald-400",
-    bg: "bg-emerald-500/10 border-emerald-500/25",
-    dot: "bg-emerald-400",
-    icon: Globe,
-    description: "Sahibinden'e giriş yapılmış ve tarayıcı aktif",
-  },
-  "logged-out": {
-    label: "Giriş Yok",
-    color: "text-amber-400",
-    bg: "bg-amber-500/10 border-amber-500/25",
-    dot: "bg-amber-400",
-    icon: LogIn,
-    description: "Tarayıcı açık ancak giriş yapılmamış",
-  },
-  "browser-closed": {
-    label: "Kapalı",
-    color: "text-zinc-500",
-    bg: "bg-zinc-800/60 border-zinc-700/50",
-    dot: "bg-zinc-600",
-    icon: WifiOff,
-    description: "Otomasyon tarayıcısı şu an kapalı",
-  },
-  unknown: {
-    label: "Bilinmiyor",
-    color: "text-zinc-500",
-    bg: "bg-zinc-800/60 border-zinc-700/50",
-    dot: "bg-zinc-600",
-    icon: AlertCircle,
-    description: "Bağlantı durumu kontrol edilemiyor",
-  },
-};
-
-// ─── Motion Variants ─────────────────────────────────────────────────────────
-
-const pageVariants = {
-  enter: (dir: number) => ({
-    opacity: 0,
-    x: dir > 0 ? 40 : -40,
-    scale: 0.96,
-    filter: "blur(10px)",
-  }),
-  center: {
-    opacity: 1,
-    x: 0,
-    scale: 1,
-    filter: "blur(0px)",
-  },
-  exit: (dir: number) => ({
-    opacity: 0,
-    x: dir > 0 ? -40 : 40,
-    scale: 0.96,
-    filter: "blur(10px)",
-  }),
-};
-
-const containerVariants: import("framer-motion").Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.08,
-      delayChildren: 0.1,
-    },
-  },
-};
-
-const itemVariants: import("framer-motion").Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: "spring",
-      stiffness: 300,
-      damping: 24,
-    },
-  },
-};
-
-const floatingAnimation: import("framer-motion").TargetAndTransition = {
-  y: [0, -8, 0],
-  transition: {
-    duration: 3,
-    repeat: Infinity,
-    ease: "easeInOut",
-  },
-};
-
-// ─── Custom Hooks ─────────────────────────────────────────────────────────────
-
-function useFileUpload() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const applyFile = useCallback((f: File) => {
-    if (!f.type.startsWith("image/")) {
-      setError("Sadece görsel dosyaları yüklenebilir.");
-      return false;
-    }
-
-    if (f.size > 10 * 1024 * 1024) {
-      setError("Görsel boyutu 10MB'dan küçük olmalıdır.");
-      return false;
-    }
-
-    setFile(f);
-    setError(null);
-    const url = URL.createObjectURL(f);
-    setPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return url;
-    });
-    return true;
-  }, []);
-
-  const clearFile = useCallback(() => {
-    setFile(null);
-    setPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    setError(null);
-  }, []);
-
-  return { file, preview, setPreview, error, setError, applyFile, clearFile };
-}
-
-function useLogs() {
-  const [logs, setLogs] = useState<string[]>([]);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-
-  const addLog = useCallback((msg: string) => {
-    const timestamp = new Date().toLocaleTimeString("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    setLogs((prev) => [`[${timestamp}] ${msg}`, ...prev]);
-  }, []);
-
-  const clearLogs = useCallback(() => setLogs([]), []);
-
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
-  return { logs, addLog, clearLogs, logsEndRef };
-}
-
-// ─── Components ───────────────────────────────────────────────────────────────
-
-const AuroraBackground = memo(() => (
-  <div className="fixed inset-0 overflow-hidden pointer-events-none">
-    <div className="absolute -top-[40%] -left-[20%] w-[140%] h-[140%] bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5 animate-aurora" />
-    <div className="absolute top-0 left-0 w-full h-full bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%2311F08E%22%20fill-opacity%3D%220.03%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-30" />
-  </div>
-));
-
-const ProgressBar = memo(
-  ({ progress, label }: { progress: number; label: string }) => (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-medium text-zinc-400">{label}</span>
-        <span className="font-mono font-bold text-emerald-400">
-          {progress}%
-        </span>
-      </div>
-      <div className="relative h-2 bg-zinc-800 rounded-full overflow-hidden">
-        <motion.div
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ type: "spring", stiffness: 50, damping: 15 }}
-        >
-          <div className="absolute inset-0 bg-white/20 animate-shimmer" />
-        </motion.div>
-      </div>
-    </div>
-  ),
-);
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function HomePage() {
-  const prefersReducedMotion = useMediaQuery(
-    "(prefers-reduced-motion: reduce)",
-  );
-
-  // Navigation
-  const [step, setStep] = useState(0);
-  const [direction, setDirection] = useState(1);
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
-
-  // File Management
-  const {
-    file,
-    preview,
-    setPreview,
-    error: fileError,
-    setError,
-    applyFile,
-    clearFile,
-  } = useFileUpload();
-
-  // Data
-  const [draft, setDraft] = useState<ListingDraft | null>(null);
-  const [reviewedForPublish, setReviewedForPublish] = useState(false);
-
-  // UI State
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("Hazırlanıyor…");
-  const [publishSuccess, setPublishSuccess] = useState(false);
-
-  // Browser
-  const [showBrowserPanel, setShowBrowserPanel] = useState(false);
-  const [browserStatus, setBrowserStatus] =
-    useState<BrowserStatusResponse | null>(null);
-  const [browserInfo, setBrowserInfo] = useState<BrowserSessionResponse | null>(
-    null,
-  );
-
-  // Logs
-  const { logs, addLog, clearLogs, logsEndRef } = useLogs();
-  const [showLogs, setShowLogs] = useState(false);
-
-  // Batch & auto-publish
-  const [isBatchMode, setIsBatchMode] = useState(false);
-  const [autoPublish, setAutoPublish] = useState(false);
-  const [isTestMode, setIsTestMode] = useState(false);
-
-  // Transitions
-  const [isAnalyzing, startAnalyzing] = useTransition();
-  const [isPublishing, startPublishing] = useTransition();
-  const [isOpeningBrowser, startOpeningBrowser] = useTransition();
-  const [isCheckingBrowser, startCheckingBrowser] = useTransition();
-
-  // ── Publish Queue ───────────────────────────────────────────────────────────
+export default function Home() {
+  // ── States ──────────────────────────────────────────────────────────────────
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [queueRunning, setQueueRunning] = useState(false);
   const [queueCurrentIndex, setQueueCurrentIndex] = useState<number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const [activeView, setActiveView] = useState<"queue" | "whatsapp" | "settings">("queue");
   const queueAbortRef = useRef(false);
-  // Always-fresh ref so async callbacks never read stale state
   const queueItemsRef = useRef<QueueItem[]>([]);
   queueItemsRef.current = queueItems;
 
-  // Refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
+  // ── Persistence ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setIsMounted(true);
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch("/api/queue");
+        const data = await res.json();
+        if (data.ok) {
+          const mappedItems = data.items.map((it: any) => ({
+            id: it.queueId,
+            draft: it.draft,
+            preview: it.preview,
+            status: it.status,
+            errorMsg: it.errorMsg,
+            addedAt: it.addedAt,
+            duration: it.duration
+          }));
+          setQueueItems(mappedItems);
+        }
+      } catch (err) {
+        console.error("[DB] ❌ Kuyruk yükleme hatası:", err);
+      }
+    };
+    fetchQueue();
+  }, []);
 
-  // Memoized Values
-  const canPublish = useMemo(() => {
-    if (!draft) return false;
-    return draft.warnings.length === 0 || reviewedForPublish;
-  }, [draft, reviewedForPublish]);
+  // Auto-sync to DB
+  useEffect(() => {
+    if (!isMounted || queueItems.length === 0) return;
+    
+    const syncQueue = async () => {
+      try {
+        await fetch("/api/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: queueItems })
+        });
+      } catch (err) {
+        console.error("[DB] ❌ Kuyruk senkronizasyon hatası:", err);
+      }
+    };
 
-  const statusConfig = useMemo(
-    () => BROWSER_STATUS_CONFIG[browserStatus?.status ?? "unknown"],
-    [browserStatus?.status],
-  );
-
-  // Navigation
-  const navigate = useCallback(
-    (next: number) => {
-      setDirection(next > step ? 1 : -1);
-      setStep(next);
-      if (next === 0) setActiveTab("home");
-    },
-    [step],
-  );
-
-  const handleReset = useCallback(() => {
-    setDirection(-1);
-    setStep(0);
-    setActiveTab("home");
-    clearFile();
-    setDraft(null);
-    setError(null);
-    clearLogs();
-    setProgress(0);
-    setProgressLabel("Hazırlanıyor…");
-    setReviewedForPublish(false);
-    setPublishSuccess(false);
-    toast.success("Başarıyla sıfırlandı");
-  }, [clearFile, setError, clearLogs]);
+    const timer = setTimeout(syncQueue, 1000);
+    return () => clearTimeout(timer);
+  }, [queueItems, isMounted]);
 
   // ── Queue Handlers ──────────────────────────────────────────────────────────
-
-  const addToQueue = useCallback(
-    (draft: import("@/lib/types").ListingDraft, preview: string | null) => {
-      const item: QueueItem = {
-        id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        draft,
-        preview,
-        status: "pending",
-        addedAt: new Date().toLocaleTimeString("tr-TR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
-      setQueueItems((prev) => [...prev, item]);
-    },
-    [],
-  );
+  const addToQueue = useCallback((draft: ListingDraft, preview: string | null) => {
+    const item: QueueItem = {
+      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      draft,
+      preview,
+      status: "pending",
+      addedAt: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+    };
+    console.log("[QUEUE] ➕ İlan kuyruğa eklendi:", draft.name);
+    setQueueItems((prev) => [...prev, item]);
+  }, []);
 
   const removeFromQueue = useCallback((id: string) => {
-    setQueueItems((prev) => prev.filter((i) => i.id !== id));
+    const item = queueItemsRef.current.find(i => i.id === id);
+    console.log("[QUEUE] ➖ İlan kuyruktan kaldırıldı:", item?.draft.name);
+    setQueueItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
-  const clearQueue = useCallback(() => {
-    setQueueItems([]);
+  const updateQueueItem = useCallback((id: string, patch: Partial<ListingDraft>) => {
+    console.log("[QUEUE] 📝 İlan güncellendi:", id, patch);
+    setQueueItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, draft: { ...item.draft, ...patch } } : item
+      )
+    );
   }, []);
 
-  const updateQueueItem = useCallback(
-    (id: string, patch: Partial<import("@/lib/types").ListingDraft>) => {
-      setQueueItems((prev) =>
-        prev.map((qi) =>
-          qi.id === id ? { ...qi, draft: { ...qi.draft, ...patch } } : qi
-        )
-      );
-    },
-    [],
-  );
-
-  const stopQueue = useCallback(() => {
-    queueAbortRef.current = true;
-    setQueueRunning(false);
-    setQueueCurrentIndex(null);
-    toast.info("Kuyruk durduruldu");
-  }, []);
-
-  const startQueue = useCallback(async () => {
-    // Read fresh snapshot at call time via ref (avoids stale closure issues)
-    const snapshot = queueItemsRef.current;
-    const pending = snapshot.filter((i) => i.status === "pending");
-
-    if (pending.length === 0) {
-      toast.error("Kuyrukta bekleyen ilan yok");
-      return;
+  const handleReset = useCallback(async () => {
+    if (window.confirm("Kuyruğu tamamen temizlemek istediğine emin misin?")) {
+      console.log("[SYSTEM] 🔄 Sistem sıfırlanıyor...");
+      try {
+        await fetch("/api/queue", {
+          method: "DELETE",
+          body: JSON.stringify({ clearAll: true })
+        });
+        setQueueItems([]);
+        setQueueCurrentIndex(null);
+        setQueueRunning(false);
+        toast.success("Sistem ve Veritabanı sıfırlandı");
+      } catch (err) {
+        toast.error("Sıfırlama hatası");
+      }
     }
+  }, []);
 
+  // ── Queue Execution Logic ───────────────────────────────────────────────────
+  const startQueue = async () => {
+    if (queueRunning) return;
     queueAbortRef.current = false;
     setQueueRunning(true);
-    addLog(`Kuyruk başlatıldı — ${pending.length} ilan sıralanacak`);
-    toast.success(`${pending.length} ilan sırayla yüklenecek`);
+    console.log("[BOT] 🚀 Kuyruk başlatıldı");
 
-    // Iterate only the pending items captured at start time
-    for (let idx = 0; idx < pending.length; idx++) {
-      if (queueAbortRef.current) break;
+    let items = [...queueItemsRef.current];
+    for (let i = 0; i < items.length; i++) {
+      if (queueAbortRef.current) {
+        console.log("[BOT] 🛑 Kuyruk kullanıcı tarafından durduruldu");
+        break;
+      }
+      if (items[i].status === "done" || items[i].status === "running") continue;
 
-      const item = pending[idx];
-
-      // Find real index in the latest list (for UI highlight)
-      const globalIdx = queueItemsRef.current.findIndex((q) => q.id === item.id);
-      setQueueCurrentIndex(globalIdx);
-
+      setQueueCurrentIndex(i);
       setQueueItems((prev) =>
-        prev.map((qi) =>
-          qi.id === item.id ? { ...qi, status: "running" } : qi
-        )
+        prev.map((it, idx) => (idx === i ? { ...it, status: "running" } : it))
       );
 
-      addLog(`[İlan ${idx + 1}/${pending.length}] Başlatılıyor: ${item.draft.name}`);
+      console.log(`[BOT] 🛠 İşleniyor (${i + 1}/${items.length}):`, items[i].draft.name);
+      const startTime = Date.now();
 
       try {
         const res = await fetch("/api/publish", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            mode: "publish",
-            draft: item.draft,
-            reviewedForPublish: true,
+            draft: items[i].draft,
+            mode: "publish" // Required by Zod schema
           }),
         });
-        const result = (await res.json()) as {
-          ok: boolean;
-          error?: string;
-          logs?: string[];
-        };
 
-        if (result.logs?.length) result.logs.forEach(addLog);
+        const data = await res.json();
+        const duration = ((Date.now() - startTime) / 1000).toFixed(0) + "s";
+        console.log(`[API] 📡 Yanıt alındı (${items[i].draft.name}) [${duration}]:`, data);
 
-        if (!res.ok || !result.ok)
-          throw new Error(result.error ?? "Yayın başarısız");
-
-        setQueueItems((prev) =>
-          prev.map((qi) =>
-            qi.id === item.id ? { ...qi, status: "done" } : qi
-          )
-        );
-        addLog(`✓ [İlan ${idx + 1}/${pending.length}] Yayınlandı: ${item.draft.name}`);
-        toast.success(`${item.draft.name} yayınlandı!`);
+        if (data.ok) {
+          console.log(`[BOT] ✅ Başarıyla yayınlandı:`, items[i].draft.name);
+          setQueueItems((prev) =>
+            prev.map((it, idx) => (idx === i ? { ...it, status: "done", duration } : it))
+          );
+          toast.success("İlan başarıyla yüklendi", { description: `${items[i].draft.name} (${duration})` });
+        } else {
+          console.error(`[BOT] ❌ Yayınlama hatası (${items[i].draft.name}):`, data.error);
+          setQueueItems((prev) =>
+            prev.map((it, idx) => (idx === i ? { ...it, status: "error", errorMsg: data.error } : it))
+          );
+          toast.error("Yayınlama hatası", { description: data.error });
+        }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Hata";
+        console.error(`[BOT] ☢️ Kritik hata (${items[i].draft.name}):`, err);
         setQueueItems((prev) =>
-          prev.map((qi) =>
-            qi.id === item.id ? { ...qi, status: "error", errorMsg: msg } : qi
-          )
+          prev.map((it, idx) => (idx === i ? { ...it, status: "error", errorMsg: "Bağlantı hatası" } : it))
         );
-        addLog(`✗ [İlan ${idx + 1}/${pending.length}] Hata: ${msg}`);
-        toast.error(`${item.draft.name}: ${msg}`);
       }
 
-      // 3 s cooldown between listings (skip after last)
-      if (!queueAbortRef.current && idx < pending.length - 1) {
-        await new Promise<void>((r) => setTimeout(r, 3000));
-      }
+      // Wait between items
+      await new Promise((r) => setTimeout(r, 2000));
     }
 
     setQueueRunning(false);
     setQueueCurrentIndex(null);
+    console.log("[BOT] 🏁 Kuyruk işlemi tamamlandı");
+  };
 
-    if (!queueAbortRef.current) {
-      addLog("Kuyruk tamamlandı");
-      toast.success("Tüm ilanlar işlendi!");
-    }
-  }, [addLog]); // queueItems removed — we always read from queueItemsRef
-
-  // Analysis Progress Effect
-  useEffect(() => {
-    if (!isAnalyzing) {
-      if (progress !== 0) setProgress(0);
-      return;
-    }
-
-    setProgress(0);
-    setProgressLabel("Başlatılıyor…");
-
-    const timers = ANALYSIS_STAGES.map(({ at, value, label }) =>
-      setTimeout(() => {
-        setProgress(value);
-        setProgressLabel(label);
-      }, at),
+  const stopQueue = () => {
+    queueAbortRef.current = true;
+    setQueueRunning(false);
+    setQueueCurrentIndex(null);
+    setQueueItems((prev) =>
+      prev.map((it) => (it.status === "running" ? { ...it, status: "pending" } : it))
     );
+    toast.info("Kuyruk durduruldu");
+  };
 
-    return () => timers.forEach(clearTimeout);
-  }, [isAnalyzing, progress]);
-
-  // Read from localStorage after hydration (must run client-side only)
-  useEffect(() => {
-    const stored = localStorage.getItem("autoPublish");
-    if (stored === "true") setAutoPublish(true);
-  }, []); // empty deps → runs once after first client render
-
-  // Persist changes
-  useEffect(() => {
-    localStorage.setItem("autoPublish", String(autoPublish));
-  }, [autoPublish]);
-
-  // ── Queue persistence ───────────────────────────────────────────────────────
-  // Load queue from localStorage on first render (client-side only)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("publishQueue");
-      if (!raw) return;
-      const parsed: QueueItem[] = JSON.parse(raw);
-      // Reset any "running" items to "pending" (they were interrupted)
-      const restored = parsed.map((item) =>
-        item.status === "running" ? { ...item, status: "pending" as const } : item
-      );
-      if (restored.length > 0) setQueueItems(restored);
-    } catch {
-      // Ignore corrupt data
-    }
-  }, []);
-
-  // Write queue to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem("publishQueue", JSON.stringify(queueItems));
-    } catch {
-      // Ignore storage errors (e.g. private browsing quota)
-    }
-  }, [queueItems]);
-
-  // Clipboard Paste
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const imageItem = Array.from(items).find((item) =>
-        item.type.startsWith("image/"),
-      );
-      if (!imageItem) return;
-
-      const blob = imageItem.getAsFile();
-      if (!blob) return;
-
-      e.preventDefault();
-      const ext = blob.type.split("/")[1] || "png";
-      const file = new File([blob], `pasted-${Date.now()}.${ext}`, {
-        type: blob.type,
-      });
-
-      if (applyFile(file)) {
-        addLog(`Panodan görsel alındı: ${file.name}`);
-        toast.success("Görsel panodan yapıştırıldı");
-      }
-    };
-
-    window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
-  }, [applyFile, addLog]);
-
-  // Browser Status Check
-  const checkBrowserStatus = useCallback(
-    async (pushLogs = true) => {
-      startCheckingBrowser(async () => {
-        try {
-          const res = await fetch("/api/browser/status", { cache: "no-store" });
-          const data = (await res.json()) as BrowserStatusResponse;
-
-          if (!res.ok || !data.ok) throw new Error(data.message);
-
-          setBrowserStatus(data);
-          if (pushLogs && data.logs?.length) {
-            data.logs.forEach(addLog);
-          }
-        } catch (err) {
-          setBrowserStatus({
-            ok: false,
-            status: "unknown",
-            browserRunning: false,
-            message: err instanceof Error ? err.message : "Bağlantı hatası",
-            logs: [],
-          });
-        }
-      });
-    },
-    [addLog],
-  );
-
-  useEffect(() => {
-    checkBrowserStatus(false);
-    const interval = setInterval(() => checkBrowserStatus(false), 30000);
-    return () => clearInterval(interval);
-  }, [checkBrowserStatus]);
-
-  // API Calls
-  const runAnalyze = useCallback(async () => {
-    if (!file) {
-      toast.error("Lütfen önce bir görsel seçin");
-      return;
-    }
-
-    navigate(1);
-
-    startAnalyzing(async () => {
-      setError(null);
-      clearLogs();
-      addLog("Analiz başlatılıyor…");
-
-      const formData = new FormData();
-      formData.append("image", file);
-
-      try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          body: formData,
-        });
-        const result = (await res.json()) as AnalyzeResponse;
-
-        if (!res.ok || !result.ok || !result.draft) {
-          throw new Error(result.error ?? "Analiz tamamlanamadı");
-        }
-
-        setDraft(result.draft);
-        setReviewedForPublish(false);
-        addLog("✓ Analiz başarıyla tamamlandı");
-
-        if (result.draft.warnings.length > 0) {
-          result.draft.warnings.forEach((w) => addLog(`⚠️ ${w}`));
-          toast.info(`${result.draft.warnings.length} uyarı bulundu`);
-        }
-
-        setTimeout(() => navigate(2), 800);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Bağlantı hatası";
-        setError(msg);
-        toast.error(msg);
-        navigate(0);
-      }
-    });
-  }, [file, navigate, setError, clearLogs, addLog]);
-
-  const openBrowser = useCallback(
-    async (mode: "home" | "login" | "post-ad") => {
-      startOpeningBrowser(async () => {
-        try {
-          const res = await fetch("/api/browser/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode }),
-          });
-          const result = (await res.json()) as BrowserSessionResponse;
-
-          if (!res.ok || !result.ok) {
-            throw new Error(result.error ?? "Tarayıcı başlatılamadı");
-          }
-
-          setBrowserInfo(result);
-          addLog(`Tarayıcı açıldı: ${result.targetUrl}`);
-          toast.success("Tarayıcı başlatıldı");
-          checkBrowserStatus(false);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Başlatma hatası";
-          toast.error(msg);
-        }
-      });
-    },
-    [addLog, checkBrowserStatus],
-  );
-
-  const runPublish = useCallback(
-    async (mode: "draft" | "publish") => {
-      if (!draft) return;
-
-      setPublishSuccess(false);
-      startPublishing(async () => {
-        try {
-          const res = await fetch("/api/publish", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode, draft, reviewedForPublish }),
-          });
-          const result = (await res.json()) as PublishResponse;
-
-          if (result.logs?.length) result.logs.forEach(addLog);
-
-          if (!res.ok || !result.ok) {
-            throw new Error(result.error ?? "Yayın akışı başarısız");
-          }
-
-          setPublishSuccess(true);
-          toast.success(
-            mode === "publish" ? "İlan yayınlandı!" : "Taslak kaydedildi",
-          );
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Yayın hatası";
-          toast.error(msg);
-        }
-      });
-    },
-    [draft, reviewedForPublish, addLog],
-  );
-
-  // Draft Update
-  const updateDraftField = useCallback(
-    <K extends keyof ListingDraft>(key: K, value: ListingDraft[K]) => {
-      setDraft((curr) => {
-        if (!curr) return curr;
-        const next = { ...curr, [key]: value };
-        next.categoryPath = [
-          ...SAHIBINDEN_ROOT_PATH,
-          next.category,
-          next.vehicleType,
-          next.partCategory,
-        ];
-        return next;
-      });
-    },
-    [],
-  );
-
-  // Drag & Drop Handlers
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    if (!dropZoneRef.current?.contains(e.relatedTarget as Node)) {
-      setIsDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragActive(false);
-
-      if (isBatchMode) return;
-
-      const dropped = Array.from(e.dataTransfer.files).find((f) =>
-        f.type.startsWith("image/"),
-      );
-      if (!dropped) {
-        toast.error("Sadece görsel dosyası bırakabilirsiniz");
-        return;
-      }
-
-      if (applyFile(dropped)) {
-        addLog(`Sürükle-bırak: ${dropped.name}`);
-      }
-    },
-    [applyFile, addLog],
-  );
-
-  // Tab Handler
-  const handleTabChange = useCallback(
-    (tab: NavTab) => {
-      if (tab === "scan") {
-        if (step === 1) return;
-        setActiveTab("scan");
-        setShowBrowserPanel(false);
-        setShowLogs(false);
-        if (step === 2) {
-          setDraft(null);
-          setReviewedForPublish(false);
-          setPublishSuccess(false);
-          setDirection(-1);
-          setStep(0);
-        }
-      } else if (tab === "manual") {
-        setActiveTab("manual");
-        setShowBrowserPanel(false);
-        setShowLogs(false);
-        if (step === 2) {
-          setDraft(null);
-          setReviewedForPublish(false);
-          setPublishSuccess(false);
-          setDirection(-1);
-          setStep(0);
-        }
-      } else {
-        setActiveTab(tab);
-        setShowBrowserPanel(tab === "browser");
-        setShowLogs(tab === "logs");
-        if (tab === "home" && step === 2) navigate(0);
-      }
-    },
-    [step, navigate],
-  );
-
-  // Render Helpers
-  const renderBrowserPanel = () => (
-    <motion.div
-      initial={{ height: 0, opacity: 0 }}
-      animate={{ height: "auto", opacity: 1 }}
-      exit={{ height: 0, opacity: 0 }}
-      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-      className="overflow-hidden border-b border-white/5 bg-zinc-900/50 backdrop-blur-xl"
-    >
-      <div className="mx-auto max-w-2xl px-4 py-5 sm:px-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold uppercase tracking-wider",
-                statusConfig.bg,
-                statusConfig.color,
-              )}
-            >
-              <span
-                className={cn(
-                  "w-2 h-2 rounded-full animate-pulse",
-                  statusConfig.dot,
-                )}
-              />
-              {statusConfig.label}
-            </div>
-            <button
-              onClick={() => checkBrowserStatus(true)}
-              disabled={isCheckingBrowser}
-              className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
-            >
-              <RotateCcw
-                className={cn("w-4 h-4", isCheckingBrowser && "animate-spin")}
-              />
-            </button>
-          </div>
-        </div>
-
-        {browserStatus?.message && (
-          <p className="text-xs text-zinc-500 leading-relaxed">
-            {statusConfig.description}
-          </p>
-        )}
-
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            {
-              mode: "home" as const,
-              label: "Tarayıcı",
-              icon: Globe,
-              color: "zinc",
-            },
-            {
-              mode: "login" as const,
-              label: "Giriş",
-              icon: LogIn,
-              color: "sky",
-            },
-            {
-              mode: "post-ad" as const,
-              label: "İlan Ver",
-              icon: FileText,
-              color: "emerald",
-            },
-          ].map(({ mode, label, icon: Icon, color }) => (
-            <button
-              key={mode}
-              onClick={() => openBrowser(mode)}
-              disabled={isOpeningBrowser}
-              className={cn(
-                "flex flex-col items-center gap-2 rounded-xl border px-2 py-3 text-xs font-bold uppercase tracking-wide",
-                "transition-all duration-200 active:scale-95 disabled:opacity-40",
-                color === "zinc" &&
-                "border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700",
-                color === "sky" &&
-                "border-sky-600/30 bg-sky-600/10 text-sky-400 hover:bg-sky-600/20",
-                color === "emerald" &&
-                "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
-              )}
-            >
-              {isOpeningBrowser ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Icon className="w-4 h-4" />
-              )}
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-
-        {browserInfo && (
-          <div className="rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[11px] text-zinc-500 font-mono space-y-1">
-            <div className="flex gap-2">
-              <span className="text-zinc-600">URL:</span>
-              <span className="truncate">{browserInfo.targetUrl}</span>
-            </div>
-            <div className="flex gap-2">
-              <span className="text-zinc-600">Profil:</span>
-              <span className="truncate">{browserInfo.userDataDir}</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
+  if (!isMounted) return null;
 
   return (
-    <>
-      <SplashScreen />
-      <AuroraBackground />
+    <div className="flex h-[100dvh] w-full bg-[#0d1117] text-zinc-300 font-sans overflow-hidden">
+      {/* ── Sidebar (Aside) ── */}
+      <aside className="w-64 border-r border-white/5 hidden lg:flex flex-col flex-shrink-0 bg-[#0d1117]">
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#11F08E] flex items-center justify-center">
+            <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <span className="font-black tracking-tighter text-white text-xl uppercase">NextBot</span>
+        </div>
 
-      <div
-        ref={dropZoneRef}
-        onDragEnter={!isBatchMode ? handleDragOver : undefined}
-        onDragLeave={!isBatchMode ? handleDragLeave : undefined}
-        onDragOver={!isBatchMode ? handleDragOver : undefined}
-        onDrop={!isBatchMode ? handleDrop : undefined}
-        className="min-h-dvh flex flex-col bg-[#0a0a0a] text-white relative"
-      >
-        {/* Global Drag Overlay */}
-        <AnimatePresence>
-          {isDragActive && !isBatchMode && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-none"
-            >
-              <div className="absolute inset-4 border-4 border-dashed border-emerald-500/50 rounded-3xl flex flex-col items-center justify-center gap-6 bg-emerald-500/5">
-                <div className="w-32 h-32 rounded-full bg-emerald-500/20 flex items-center justify-center animate-pulse">
-                  <UploadCloud className="w-16 h-16 text-emerald-400" />
-                </div>
-                <div className="text-center">
-                  <h2 className="text-4xl font-black text-white tracking-widest uppercase">
-                    Görseli Buraya Bırakın
-                  </h2>
-                  <p className="text-emerald-400 font-medium mt-2 text-lg">
-                    Hemen analiz etmeye başlayalım
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <nav className="flex-1 px-4 space-y-1 mt-4">
+          <div className="px-4 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Dashboard</div>
+          
+          <div 
+            onClick={() => setActiveView("queue")}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all",
+              activeView === "queue" 
+                ? "bg-[#11F08E]/10 text-[#11F08E] border border-[#11F08E]/20" 
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+            )}
+          >
+            <Layers className="w-4 h-4" />
+            <span className="text-sm font-bold">Yükleme Kuyruğu</span>
+          </div>
 
+          <div 
+            onClick={() => setActiveView("whatsapp")}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all",
+              activeView === "whatsapp" 
+                ? "bg-[#11F08E]/10 text-[#11F08E] border border-[#11F08E]/20" 
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+            )}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="text-sm font-bold">WhatsApp AI Bot</span>
+          </div>
+
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer group">
+            <History className="w-4 h-4" />
+            <span className="text-sm font-bold">Tamamlananlar</span>
+          </div>
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer group">
+            <RotateCcw className="w-4 h-4" />
+            <span className="text-sm font-bold">Log Kayıtları</span>
+          </div>
+          <div className="mt-8 px-4 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Ayarlar</div>
+          <div
+            onClick={() => setActiveView("settings")}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all",
+              activeView === "settings"
+                ? "bg-[#11F08E]/10 text-[#11F08E] border border-[#11F08E]/20"
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+            )}
+          >
+            <Zap className="w-4 h-4" />
+            <span className="text-sm font-bold">Bot Ayarları</span>
+          </div>
+        </nav>
+
+        <div className="p-6 border-t border-white/5 hidden">
+          <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-4">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Account Plan</p>
+            <p className="text-white font-bold text-sm mb-2">Enterprise Pro</p>
+            <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
+              <div className="h-full bg-[#11F08E] w-3/4"></div>
+            </div>
+            <p className="text-[9px] text-zinc-500 mt-2 italic">750 / 1000 listings used</p>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Main Content Area ── */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden min-h-0 bg-[#0d1117]">
         {/* Header */}
-        <header className="sticky top-0 z-50 border-b border-white/5 bg-black/40 backdrop-blur-2xl supports-[backdrop-filter]:bg-black/20">
-          <div className="mx-auto flex h-20 sm:h-[72px] max-w-2xl items-center justify-between px-4 sm:px-6">
-            <motion.div
-              className="flex items-center gap-3.5"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
+        <header className="h-14 lg:h-16 border-b border-white/5 flex items-center justify-between px-3 sm:px-4 lg:px-8 bg-[#0d1117]/50 backdrop-blur-md flex-shrink-0 z-20">
+          {/* Sol: Breadcrumb */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs text-zinc-500 hidden sm:inline truncate">Bot</span>
+            <svg className="w-3 h-3 text-zinc-600 hidden sm:inline flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="text-xs font-bold text-zinc-100 truncate">
+              {activeView === "queue" ? "Yükleme Kuyruğu" : activeView === "whatsapp" ? "WhatsApp AI Bot" : "Bot Ayarları"}
+            </span>
+          </div>
+
+          {/* Sağ: Aksiyonlar */}
+          <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4 flex-shrink-0">
+            {/* Sahibinden Durumu */}
+            <SahibindenAuthStatus />
+
+            <div className="h-4 w-px bg-white/10 mx-1 hidden sm:block" />
+
+            {/* Manuel Ekle */}
+            <button
+              onClick={() => {
+                console.log("[UI] 🖱 Manuel İlan modalı açıldı");
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-[10px] px-2 sm:px-3 lg:px-4 py-2 border border-[#11F08E]/20 bg-[#11F08E]/10 text-[#11F08E] hover:bg-[#11F08E]/20 rounded-lg transition-all font-bold uppercase tracking-widest leading-none active:scale-95"
+              title="Manuel Ekle"
             >
-              <Logo size="md" />
-              <span className="font-black text-base tracking-widest uppercase">
-                İLAN<span className="text-emerald-400">LA</span>
-              </span>
-            </motion.div>
+              <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="hidden sm:inline">Manuel</span>
+              <span className="hidden lg:inline"> Ekle</span>
+            </button>
 
-            <div className="flex items-center">
-              {/* Batch mode + auto-publish toggles */}
-              <div className="flex items-center gap-2 mr-2">
-                {/* Test mode toggle */}
-                <button
-                  type="button"
-                  onClick={() => setIsTestMode((v) => !v)}
-                  title={isTestMode ? "Test Modu: Açık" : "Test Modu: Kapalı"}
-                  className={[
-                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95",
-                    isTestMode
-                      ? "border-purple-400/40 bg-purple-400/10 text-purple-400"
-                      : "border-zinc-700 bg-zinc-800/50 text-zinc-500 hover:text-zinc-400",
-                  ].join(" ")}
-                >
-                  <Lightbulb className="w-3 h-3" />
-                  <span className="hidden sm:inline">Test</span>
-                </button>
+            {/* Toplu Ekle */}
+            <button
+              onClick={() => {
+                console.log("[UI] 🖱 Toplu İlan modalı açıldı");
+                setIsBulkModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-[10px] px-2 sm:px-3 lg:px-4 py-2 border border-amber-500/20 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 rounded-lg transition-all font-bold uppercase tracking-widest leading-none active:scale-95"
+              title="Toplu Ekle"
+            >
+              <Layers className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="hidden sm:inline">Toplu</span>
+              <span className="hidden lg:inline"> Ekle</span>
+            </button>
 
-                {/* Auto-publish toggle */}
-                <button
-                  type="button"
-                  onClick={() => setAutoPublish((v) => !v)}
-                  title={autoPublish ? "Oto İlan: Açık" : "Oto İlan: Kapalı"}
-                  className={[
-                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95",
-                    autoPublish
-                      ? "border-amber-400/40 bg-amber-400/10 text-amber-400"
-                      : "border-zinc-700 bg-zinc-800/50 text-zinc-500 hover:text-zinc-400",
-                  ].join(" ")}
-                >
-                  <Zap className="w-3 h-3" />
-                  <span className="hidden sm:inline">Oto İlan</span>
-                </button>
+            {/* Sıfırla */}
+            <button
+              onClick={handleReset}
+              className="text-[10px] px-2 sm:px-3 lg:px-4 py-2 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-all font-bold uppercase tracking-widest leading-none active:scale-95"
+              title="Sıfırla"
+            >
+              <span className="sm:hidden">↺</span>
+              <span className="hidden sm:inline">Sıfırla</span>
+            </button>
 
-                {/* Batch mode toggle */}
-                <button
-                  type="button"
-                  onClick={() => setIsBatchMode((v) => !v)}
-                  title={isBatchMode ? "Tekli moda geç" : "Toplu yükleme"}
-                  className={[
-                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95",
-                    isBatchMode
-                      ? "border-[#11F08E]/40 bg-[#11F08E]/10 text-[#11F08E]"
-                      : "border-zinc-700 bg-zinc-800/50 text-zinc-500 hover:text-zinc-400",
-                  ].join(" ")}
-                >
-                  <Layers className="w-3 h-3" />
-                  <span className="hidden sm:inline">Toplu</span>
-                </button>
-              </div>
-
-              <motion.button
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                onClick={() => {
-                  setShowBrowserPanel((v) => !v);
-                  setActiveTab(showBrowserPanel ? "home" : "browser");
-                }}
-                className={cn(
-                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all",
-                  "active:scale-95 hover:scale-105",
-                  statusConfig.bg,
-                  statusConfig.color,
-                )}
-              >
-                <statusConfig.icon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{statusConfig.label}</span>
-                {showBrowserPanel ? (
-                  <ChevronUp className="w-3 h-3" />
-                ) : (
-                  <ChevronDown className="w-3 h-3" />
-                )}
-              </motion.button>
+            {/* Avatar */}
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white/10 bg-zinc-800 flex items-center justify-center text-[10px] font-black text-[#11F08E] shadow-lg flex-shrink-0">
+              MB
             </div>
           </div>
         </header>
 
-        {/* Browser Panel */}
-        <AnimatePresence>
-          {showBrowserPanel && renderBrowserPanel()}
-        </AnimatePresence>
+        {/* Content Container */}
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col relative min-h-0 hide-scrollbar">
+          <style dangerouslySetInnerHTML={{
+            __html: `
+            .hide-scrollbar::-webkit-scrollbar { display: none; }
+            .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+          `}} />
 
-        {/* Logs Panel */}
-        <AnimatePresence>
-          {showLogs && logs.length > 0 && (
+          {activeView === "queue" ? (
+            <>
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8 flex-shrink-0">
+                <div className="bg-white/[0.02] border border-white/5 p-5 rounded-2xl shadow-sm">
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Kuyrukta</p>
+                  <h4 className="text-2xl font-black text-white mt-2 tracking-tight">
+                    {queueItems.filter((i) => i.status === "pending").length}
+                  </h4>
+                </div>
+                <div className="bg-white/[0.02] border border-white/5 p-5 rounded-2xl shadow-sm">
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tamamlanan</p>
+                  <h4 className="text-2xl font-black text-[#11F08E] mt-2 tracking-tight">
+                    {queueItems.filter((i) => i.status === "done").length}
+                  </h4>
+                </div>
+                <div className="bg-white/[0.02] border border-white/5 p-5 rounded-2xl shadow-sm">
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Hatalı</p>
+                  <h4 className="text-2xl font-black text-red-400 mt-2 tracking-tight">
+                    {queueItems.filter((i) => i.status === "error").length}
+                  </h4>
+                </div>
+                <div className="bg-white/[0.02] border border-white/5 p-5 rounded-2xl shadow-sm">
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Durum</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className={cn("w-2 h-2 rounded-full", queueRunning ? "bg-amber-400 animate-pulse" : "bg-zinc-600")} />
+                    <h4 className={cn("text-lg font-black tracking-tight", queueRunning ? "text-amber-400" : "text-zinc-500")}>
+                      {queueRunning ? "Aktif" : "Beklemede"}
+                    </h4>
+                  </div>
+                </div>
+              </div>
+
+              {/* Publish Queue Table */}
+              <PublishQueue
+                items={queueItems}
+                onRemove={removeFromQueue}
+                onUpdate={updateQueueItem}
+                onClear={handleReset}
+                onStartQueue={startQueue}
+                onStopQueue={stopQueue}
+                isRunning={queueRunning}
+                currentIndex={queueCurrentIndex}
+              />
+            </>
+          ) : activeView === "whatsapp" ? (
+            <WhatsAppDashboard />
+          ) : (
+            <BotSettings />
+          )}
+
+          <div className="h-12 flex-shrink-0" /> {/* Spacer */}
+        </div>
+      </main>
+
+      {/* ── Manual Listing Modal ── */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <>
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-b border-white/5 bg-zinc-900/50 backdrop-blur-xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsModalOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed top-[5%] bottom-[5%] left-1/2 -translate-x-1/2 w-full max-w-2xl bg-[#161c24] border border-white/10 rounded-3xl shadow-2xl z-50 overflow-hidden flex flex-col"
             >
-              <div className="mx-auto max-w-2xl px-4 py-4 sm:px-6">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                    Sistem Logları
-                  </span>
-                  <button
-                    onClick={clearLogs}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-                  >
-                    Temizle
-                  </button>
-                </div>
-                <div className="max-h-48 overflow-y-auto rounded-lg bg-black/40 border border-white/5 p-3 font-mono text-[11px] space-y-1">
-                  {logs.map((log, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      <span className="text-emerald-500/50 mr-2">›</span>
-                      {log}
-                    </motion.div>
-                  ))}
-                  <div ref={logsEndRef} />
-                </div>
+              <div className="flex-1 overflow-y-auto p-6 sm:p-8">
+                <ManualListingForm
+                  onCancel={() => setIsModalOpen(false)}
+                  onDraftCreated={() => { }}
+                  onAddToQueue={(draft, preview) => {
+                    addToQueue(draft, preview);
+                    setIsModalOpen(false);
+                  }}
+                />
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+          </>
+        )}
+      </AnimatePresence>
 
-        {/* Main Content */}
-        <main className="flex-1 mx-auto w-full max-w-2xl px-4 pt-6 pb-32 sm:px-6 sm:pt-8 relative">
-          {/* ── Batch Upload Mode ─────────────────────────────────────────────── */}
-          {isBatchMode && (
+      {/* ── Bulk Add Modal ── */}
+      <AnimatePresence>
+        {isBulkModalOpen && (
+          <>
             <motion.div
-              key="batch-mode"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -16 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-              className="mb-6"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBulkModalOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed top-[10%] bottom-[10%] left-1/2 -translate-x-1/2 w-full max-w-3xl bg-[#0d1117] border border-white/10 rounded-3xl shadow-2xl z-50 overflow-hidden flex flex-col"
             >
-              {/* Header bar */}
-              <div className="flex items-center justify-between mb-4 px-1">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-[#11F08E]" />
-                  <span className="text-sm font-black text-zinc-300 uppercase tracking-widest">
-                    Toplu Yükleme
-                  </span>
-                </div>
-                {autoPublish && (
-                  <div className="flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black text-amber-400 uppercase tracking-wider">
-                    <Zap className="w-3 h-3" />
-                    Oto İlan Aktif
-                  </div>
-                )}
-              </div>
-
-              {/* Domain Selection for Batch Mode removed */}
-
-              <BatchUploadPanel
-                autoPublish={autoPublish}
-                onBatchComplete={(stats) => {
-                  // optionally handle completion
-                  console.log("Batch complete:", stats);
+              <BulkAddModal
+                onClose={() => setIsBulkModalOpen(false)}
+                onAdd={(newItems) => {
+                  console.log(`[QUEUE] 📦 ${newItems.length} adet toplu ilan ekleniyor...`);
+                  newItems.forEach(item => {
+                    const queueItem: QueueItem = {
+                      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                      draft: item.draft,
+                      preview: item.preview,
+                      status: "pending",
+                      addedAt: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+                    };
+                    setQueueItems(prev => [...prev, queueItem]);
+                  });
+                  toast.success(`${newItems.length} adet ilan kuyruğa eklendi!`);
                 }}
               />
             </motion.div>
-          )}
+          </>
+        )}
+      </AnimatePresence>
 
-          {/* Hide stepper and steps when batch mode is active */}
-          {!isBatchMode && (
-            <>
-              {/* Stepper — only shown during analyze and review steps */}
-              <AnimatePresence mode="wait">
-                {step > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                  >
-                    <Stepper steps={STEPS} currentStep={step} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Content Area */}
-              <AnimatePresence mode="wait" custom={direction}>
-                {/* Step 0: Scan Landing */}
-                {step === 0 && activeTab === "scan" && (
-                  <motion.div
-                    key="scan-landing"
-                    custom={direction}
-                    variants={pageVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{
-                      duration: prefersReducedMotion ? 0 : 0.35,
-                      ease: [0.4, 0, 0.2, 1],
-                    }}
-                    className="mt-6 space-y-4"
-                  >
-                    <motion.div
-                      ref={dropZoneRef}
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      animate={isDragActive ? { scale: 1.02 } : { scale: 1 }}
-                      className={cn(
-                        "relative overflow-hidden rounded-[32px] border-2 min-h-[520px] cursor-pointer transition-colors",
-                        isDragActive
-                          ? "border-emerald-400 bg-emerald-500/5 shadow-[0_0_60px_rgba(16,185,129,0.3)]"
-                          : "border-zinc-800 bg-gradient-to-b from-zinc-900/50 to-black hover:border-zinc-700",
-                      )}
-                    >
-                      {/* Scan Frame Effect */}
-                      <div className="absolute inset-4 border border-white/10 rounded-[24px] pointer-events-none" />
-                      <div className="absolute left-6 top-6 w-8 h-8 border-l-2 border-t-2 border-emerald-500/50 rounded-tl-lg" />
-                      <div className="absolute right-6 top-6 w-8 h-8 border-r-2 border-t-2 border-emerald-500/50 rounded-tr-lg" />
-                      <div className="absolute left-6 bottom-6 w-8 h-8 border-l-2 border-b-2 border-emerald-500/50 rounded-bl-lg" />
-                      <div className="absolute right-6 bottom-6 w-8 h-8 border-r-2 border-b-2 border-emerald-500/50 rounded-br-lg" />
-
-                      {/* Ambient Glow */}
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.1),transparent_70%)]" />
-
-                      <div className="relative z-10 flex flex-col items-center justify-center h-full min-h-[520px] p-8 text-center">
-                        <motion.div
-                          animate={floatingAnimation}
-                          className="mb-8 relative"
-                        >
-                          <div className="absolute inset-0 bg-emerald-500/20 blur-3xl rounded-full" />
-                          <div className="relative w-32 h-32 rounded-full border-2 border-emerald-500/30 bg-black/50 backdrop-blur-xl flex items-center justify-center shadow-2xl">
-                            <ScanLine className="w-12 h-12 text-emerald-400" />
-                          </div>
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{
-                              duration: 20,
-                              repeat: Infinity,
-                              ease: "linear",
-                            }}
-                            className="absolute inset-0 rounded-full border border-dashed border-emerald-500/20"
-                          />
-                        </motion.div>
-
-                        <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-white mb-4">
-                          Taramaya{" "}
-                          <span className="text-emerald-400">Hazır</span>
-                        </h1>
-                        <p className="text-zinc-400 max-w-sm text-lg leading-relaxed">
-                          Parçaya doğrultun veya bir görsel seçin. Yapay zeka
-                          otomatik analiz etsin.
-                        </p>
-                      </div>
-                    </motion.div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <motion.button
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => cameraInputRef.current?.click()}
-                        className="group relative overflow-hidden rounded-2xl bg-zinc-900 border border-zinc-800 p-6 flex flex-col items-center gap-3 hover:border-emerald-500/50 transition-colors"
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <ScanLine className="w-6 h-6 text-emerald-400" />
-                        </div>
-                        <span className="font-bold text-sm uppercase tracking-wider text-zinc-300">
-                          Kamera
-                        </span>
-                      </motion.button>
-
-                      <motion.button
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => fileInputRef.current?.click()}
-                        className="group relative overflow-hidden rounded-2xl bg-zinc-900 border border-zinc-800 p-6 flex flex-col items-center gap-3 hover:border-emerald-500/50 transition-colors"
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <ImageIcon className="w-6 h-6 text-emerald-400" />
-                        </div>
-                        <span className="font-bold text-sm uppercase tracking-wider text-zinc-300">
-                          Galeri
-                        </span>
-                      </motion.button>
-                    </div>
-
-                    {/* Domain selection removed */}
-                  </motion.div>
-                )}
-
-                {/* Step 0: Home / Manual Entry — ManualListingForm is the default home screen */}
-                {step === 0 && (activeTab === "home" || activeTab === "manual") && (
-                  <motion.div
-                    key="manual-entry"
-                    custom={direction}
-                    variants={pageVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
-                    className="mt-6 space-y-4"
-                  >
-                    <ManualListingForm
-                      onAddToQueue={addToQueue}
-                      onDraftCreated={(newDraft) => {
-                        setDraft(newDraft);
-                        setPreview(newDraft.imageUrl);
-                        setDirection(1);
-                        setStep(2);
-                      }}
-                    />
-
-                    {/* Publish Queue — shown below the manual form when items exist */}
-                    <AnimatePresence>
-                      {queueItems.length > 0 && (
-                        <PublishQueue
-                          key="publish-queue"
-                          items={queueItems}
-                          onRemove={removeFromQueue}
-                          onUpdate={updateQueueItem}
-                          onClear={clearQueue}
-                          onStartQueue={startQueue}
-                          onStopQueue={stopQueue}
-                          isRunning={queueRunning}
-                          currentIndex={queueCurrentIndex}
-                        />
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                )}
-
-                {/* Step 1: Analyzing */}
-                {step === 1 && (
-                  <motion.div
-                    key="analyzing"
-                    custom={direction}
-                    variants={pageVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
-                    className="mt-6 space-y-6"
-                  >
-                    <div className="relative rounded-3xl overflow-hidden border border-emerald-500/20 bg-zinc-900">
-                      {preview && (
-                        <div className="relative aspect-[4/3] opacity-30 grayscale">
-                          <img
-                            src={preview}
-                            alt="Analyzing"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
-
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="relative">
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{
-                              duration: 3,
-                              repeat: Infinity,
-                              ease: "linear",
-                            }}
-                            className="w-24 h-24 rounded-full border-4 border-emerald-500/20 border-t-emerald-500"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <ScanLine className="w-8 h-8 text-emerald-400" />
-                          </div>
-                        </div>
-                      </div>
-
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="absolute inset-x-0 bottom-0 h-1 bg-emerald-500/20"
-                      >
-                        <motion.div
-                          className="h-full bg-emerald-500"
-                          initial={{ width: "0%" }}
-                          animate={{ width: `${progress}%` }}
-                        />
-                      </motion.div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <ProgressBar progress={progress} label={progressLabel} />
-
-                      <div className="flex flex-wrap gap-2">
-                        {ANALYSIS_STAGES.map((stage) => (
-                          <motion.div
-                            key={stage.label}
-                            initial={false}
-                            animate={{
-                              backgroundColor:
-                                progress >= stage.value
-                                  ? "rgba(16, 185, 129, 0.1)"
-                                  : "transparent",
-                              borderColor:
-                                progress >= stage.value
-                                  ? "rgba(16, 185, 129, 0.3)"
-                                  : "rgba(63, 63, 70, 1)",
-                              color:
-                                progress >= stage.value
-                                  ? "rgb(52, 211, 153)"
-                                  : "rgb(113, 113, 122)",
-                            }}
-                            className="px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-colors"
-                          >
-                            {stage.label}
-                          </motion.div>
-                        ))}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Step 2: Review */}
-                {step === 2 && draft && (
-                  <motion.div
-                    key="review"
-                    custom={direction}
-                    variants={pageVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{ duration: prefersReducedMotion ? 0 : 0.35 }}
-                    className="mt-6 pb-20"
-                  >
-                    {isTestMode ? (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between px-2">
-                          <h2 className="text-xl font-black text-purple-400 uppercase tracking-widest">
-                            Test Analiz Sonucu
-                          </h2>
-                          <button
-                            onClick={handleReset}
-                            className="text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-white"
-                          >
-                            Yeni Görsel
-                          </button>
-                        </div>
-                        <div className="bg-zinc-900 border border-white/10 rounded-2xl p-4 overflow-auto max-h-[60vh] shadow-inner">
-                          <pre className="text-[11px] font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                            {JSON.stringify(draft, null, 2)}
-                          </pre>
-                        </div>
-                        <motion.button
-                          whileTap={{ scale: 0.98 }}
-                          onClick={handleReset}
-                          className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold uppercase tracking-wider text-sm transition-colors"
-                        >
-                          Sıfırla ve Geri Dön
-                        </motion.button>
-                      </div>
-                    ) : (
-                      <ListingPreview
-                        draft={draft}
-                        preview={preview}
-                        onUpdateField={updateDraftField}
-                        onDraft={() => runPublish("draft")}
-                        onPublish={() => runPublish("publish")}
-                        onReset={handleReset}
-                        isPublishing={isPublishing}
-                        canPublish={canPublish}
-                        reviewedForPublish={reviewedForPublish}
-                        onReviewedChange={setReviewedForPublish}
-                        error={fileError}
-                        publishSuccess={publishSuccess}
-                      />
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </>
-          )}
-        </main>
-
-        {/* Navigation */}
-        <Navigation
-          activeTab={activeTab}
-          loading={isAnalyzing}
-          onTabChange={handleTabChange}
-          onScanAction={() => handleTabChange("scan")}
-        />
-
-        {/* Hidden Inputs */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) {
-              applyFile(f);
-              if (activeTab === "scan") runAnalyze();
-            }
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) {
-              applyFile(f);
-              if (activeTab === "scan") runAnalyze();
-            }
-            e.target.value = "";
-          }}
-        />
-      </div>
-    </>
+      <SplashScreen />
+    </div>
   );
 }

@@ -21,6 +21,9 @@ export function resolveChromeExecutable() {
   if (process.env.CHROME_EXECUTABLE_PATH) {
     return process.env.CHROME_EXECUTABLE_PATH;
   }
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
 
   const candidates = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",

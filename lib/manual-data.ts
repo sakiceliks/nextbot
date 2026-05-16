@@ -93,7 +93,7 @@ export const TOWNS = [
 ];
 
 export const COLORS = [
-  "Beyaz",
+  "Lacivert",
   "Gümüş",
   "Turuncu"
 ];

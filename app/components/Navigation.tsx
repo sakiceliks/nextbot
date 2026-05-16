@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe, House, FileText, ScanLine, ScrollText } from "lucide-react";
+import { Globe, House, FileText, ScanLine, ScrollText, MessageSquare, SlidersHorizontal } from "lucide-react";
 
-export type NavTab = "home" | "manual" | "scan" | "logs" | "browser";
+export type NavTab = "home" | "manual" | "scan" | "logs" | "browser" | "whatsapp" | "settings";
 
 interface NavigationProps {
   activeTab: NavTab;
@@ -15,6 +15,7 @@ interface NavigationProps {
 const TABS = [
   { key: "home" as NavTab, label: "Ana Sayfa", icon: House },
   { key: "manual" as NavTab, label: "Manuel", icon: ScrollText },
+  { key: "settings" as NavTab, label: "Ayarlar", icon: SlidersHorizontal },
   { key: "logs" as NavTab, label: "Loglar", icon: FileText },
   { key: "browser" as NavTab, label: "Tarayıcı", icon: Globe },
 ] as const;
@@ -69,7 +70,7 @@ export default function Navigation({
         </div>
 
         {/* ── Tab Grid ──────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-4 items-end pt-6">
+        <div className="grid grid-cols-5 items-end pt-6">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isDisabled = "disabled" in tab && tab.disabled;

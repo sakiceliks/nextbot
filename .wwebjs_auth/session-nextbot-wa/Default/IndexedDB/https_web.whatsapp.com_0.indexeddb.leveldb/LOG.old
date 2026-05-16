@@ -1,0 +1,14 @@
+2026/05/06-12:18:19.443 edc0e Reusing MANIFEST /Users/sakicelik/Documents/GitHub/nextbot/.wwebjs_auth/session-nextbot-wa/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/05/06-12:18:19.446 edc0e Recovering log #62
+2026/05/06-12:18:19.499 edc0e Reusing old log /Users/sakicelik/Documents/GitHub/nextbot/.wwebjs_auth/session-nextbot-wa/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000062.log 
+2026/05/06-12:19:31.959 edc11 Level-0 table #68: started
+2026/05/06-12:19:31.982 edc11 Level-0 table #68: 1245608 bytes OK
+2026/05/06-12:19:32.031 edc11 Delete type=0 #62
+2026/05/06-12:20:54.837 edc33 Compacting 1@1 + 2@2 files
+2026/05/06-12:20:54.890 edc33 Generated table #69@1: 75582 keys, 2265080 bytes
+2026/05/06-12:20:54.940 edc33 Generated table #70@1: 34448 keys, 1944966 bytes
+2026/05/06-12:20:54.940 edc33 Compacted 1@1 + 2@2 files => 4210046 bytes
+2026/05/06-12:20:54.944 edc33 compacted to: files[ 0 0 2 0 0 0 0 ]
+2026/05/06-12:20:54.944 edc33 Delete type=2 #64
+2026/05/06-12:20:54.944 edc33 Delete type=2 #65
+2026/05/06-12:20:54.944 edc33 Delete type=2 #68

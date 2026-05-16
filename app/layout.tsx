@@ -33,7 +33,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="tr" className={`dark ${inter.variable}`}>
+    <html lang="tr" className={`dark ${inter.variable}`} suppressHydrationWarning>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -45,6 +45,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${inter.className} min-h-dvh bg-[#0d1117] text-white antialiased overscroll-none`}
+        suppressHydrationWarning
       >
         {children}
         <Toaster theme="dark" position="bottom-right" richColors />

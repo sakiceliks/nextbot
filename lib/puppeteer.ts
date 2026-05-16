@@ -10,6 +10,8 @@ import {
   readBrowserSession,
   resolveChromeExecutable,
 } from "@/lib/browser";
+import { COLORS } from "@/lib/manual-data";
+import { readSettings } from "@/lib/settings";
 import type { ListingDraft, PublishMode } from "@/lib/types";
 
 const SELECTOR_TIMEOUT_MS = 5_000;
@@ -94,8 +96,10 @@ function stepLog(logs: string[], stepName: string) {
   return _stepCounter;
 }
 
+// speedMultiplier ayarına göre ölçeklenmiş sleep
+let _speedMultiplier = 1;
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, Math.round(ms * _speedMultiplier)));
 }
 
 async function withRetry<T>(
@@ -531,6 +535,131 @@ async function logVisibleSelects(page: Page, logs: string[]) {
   }
 }
 
+// urun-ozellikleri sayfasındaki bilinen selectler için tercih listesi oluşturur.
+// Bot ayarlarından gelen değerleri birinci sıraya koyar.
+function buildKnownSelectDefaults(s: ReturnType<typeof readSettings>): Record<string, string[]> {
+  return {
+    a86470:   [s.defaultColor, "Beyaz", "Gümüş", "Siyah", "Lacivert", "Turuncu", "Mavi", "Sarı", "Kırmızı", "Mor", "Yeşil"],
+    a101170:  [s.defaultStorage, "256 GB", "128 GB", "512 GB", "1 TB"],
+    a120853:  [s.defaultOrigin, "Yurt dışı", "Yurt içi"],
+    a109392:  [s.defaultWarranty, "Distribütör Garantili", "İthalatçı Garantili", "Garantisi Yok"],
+    a119153:  [s.defaultCondition, "Sıfır", "İkinci El"],
+    exchange: [s.defaultExchangeable, "Evet", "Hayır"],
+  };
+}
+
+// Sayfadaki tüm boş/placeholder selectleri otomatik doldurur.
+// Bilinen select isimleri için bot ayarlarındaki tercihler kullanır,
+// bilinmeyenler için listing verisiyle eşleştirmeye ya da ilk opsiyona düşer.
+async function fillAllVisibleSelects(
+  page: Page,
+  logs: string[],
+  listing: Record<string, unknown>,
+  botSettings?: ReturnType<typeof readSettings>,
+) {
+  const normalize = (s: string) =>
+    s.replace(/\s+/g, " ").trim().toLocaleLowerCase("tr-TR");
+
+  // Atlanacak select isimleri (konum seçimleri zaten önceki adımda dolduruldu)
+  const SKIP_NAMES = new Set(["city", "town", "quarter", "country", "residenceInput", "taxOffice"]);
+
+  const listingValues = Object.values(listing)
+    .filter((v) => typeof v === "string" || typeof v === "number")
+    .map((v) => normalize(String(v)));
+
+  const selectInfos: Array<{ selector: string; name: string; label: string; options: string[] }> =
+    await page.evaluate(() => {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      const PLACEHOLDER = new Set(["seçiniz", "Seçiniz", "secenekler", "Seçenekler", ""]);
+      return Array.from(document.querySelectorAll<HTMLSelectElement>("select"))
+        .filter((s) => s.offsetParent !== null)
+        .map((s) => {
+          const group = s.closest(
+            "li, .form-group, .classifiedInfo, .classified-info, .row, .formArea",
+          );
+          const label =
+            group?.querySelector("label")?.textContent ??
+            s.closest("label")?.textContent ??
+            "";
+          return {
+            selector: s.name
+              ? `select[name="${s.name}"]`
+              : s.id
+                ? `select#${s.id}`
+                : "",
+            name: s.name || s.id || "",
+            label: norm(label),
+            // placeholder seçenekleri filtrele
+            options: Array.from(s.options)
+              .map((o) => norm(o.textContent ?? ""))
+              .filter((o) => !PLACEHOLDER.has(o)),
+          };
+        })
+        .filter((item) => item.selector && item.options.length > 0);
+    });
+
+  addLog(logs, `Sayfada ${selectInfos.length} doldurulabilir select bulundu.`, "INFO");
+
+  // Döngüden önce bir kez oluştur
+  const knownSelectMap = buildKnownSelectDefaults(botSettings ?? readSettings());
+
+  for (const info of selectInfos) {
+    if (SKIP_NAMES.has(info.name)) continue;
+
+    // Mevcut seçili değer zaten anlamlıysa atla
+    const currentVal: string = await page.$eval(info.selector, (el) =>
+      (el as HTMLSelectElement).options[(el as HTMLSelectElement).selectedIndex]
+        ?.textContent?.trim() ?? "",
+    ).catch(() => "");
+
+    const currentNorm = normalize(currentVal);
+    if (currentNorm && currentNorm !== "seçiniz" && currentNorm !== "secenekler") {
+      addLog(logs, `Select "${info.name || info.label}" zaten seçili: "${currentVal}" — atlanıyor.`, "OK");
+      continue;
+    }
+
+    let chosen: string | null = null;
+
+    // 1. Bilinen select adları için bot ayarlarından gelen tercihler
+    const knownDefaults = knownSelectMap[info.name];
+    if (knownDefaults) {
+      for (const pref of knownDefaults) {
+        const prefNorm = normalize(pref);
+        const match = info.options.find((o) => normalize(o) === prefNorm);
+        if (match) { chosen = match; break; }
+      }
+      // Listedeki renk varsa onu tercih et (renk selecti için)
+      if (info.name === "a86470" && listing.color) {
+        const colorNorm = normalize(String(listing.color));
+        const colorMatch = info.options.find((o) => normalize(o).includes(colorNorm) || colorNorm.includes(normalize(o)));
+        if (colorMatch) chosen = colorMatch;
+      }
+    }
+
+    // 2. listing verisinden eşleştir
+    if (!chosen) {
+      for (const opt of info.options) {
+        const optNorm = normalize(opt);
+        if (listingValues.some((lv) => optNorm.includes(lv) || lv.includes(optNorm))) {
+          chosen = opt;
+          break;
+        }
+      }
+    }
+
+    // 3. İlk opsiyona düş
+    if (!chosen) chosen = info.options[0];
+
+    try {
+      await selectByText(page, info.selector, chosen);
+      addLog(logs, `Select "${info.name || info.label}" → "${chosen}"`, "OK");
+      await sleep(400);
+    } catch {
+      addLog(logs, `Select "${info.name || info.label}" doldurulamadı.`, "WARN");
+    }
+  }
+}
+
 async function selectByLabelText(
   page: Page,
   labelCandidates: string[],
@@ -688,6 +817,9 @@ async function selectOptionByHeuristic(
       const targetText = normalize(rawTargetText);
       const options = Array.from(select.options);
 
+      console.log(`[HEURISTIC] Hedef: "${rawTargetText}" (normalized: "${targetText}")`);
+      console.log(`[HEURISTIC] Mevcut opsiyonlar:`, options.map(o => o.text.trim()));
+
       const exact = options.find(
         (item) => normalize(item.textContent ?? "") === targetText,
       );
@@ -697,15 +829,19 @@ async function selectOptionByHeuristic(
       const reverseIncludes = options.find((item) =>
         targetText.includes(normalize(item.textContent ?? "")),
       );
+      
       const chosen = exact || includes || reverseIncludes;
 
       if (!chosen) {
-        return false;
+        console.warn(`[HEURISTIC] Uygun opsiyon bulunamadı: "${rawTargetText}"`);
+        return null;
       }
 
+      console.log(`[HEURISTIC] Seçilen: "${chosen.text}" (Value: ${chosen.value}) [Exact: ${!!exact}, Includes: ${!!includes}, Rev: ${!!reverseIncludes}]`);
+      
       select.value = chosen.value;
       select.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
+      return { label: chosen.text, value: chosen.value };
     },
     targetText,
   );
@@ -715,6 +851,8 @@ async function selectOptionByHeuristic(
       `Heuristic option bulunamadi: ${selector} -> ${targetText}`,
     );
   }
+  
+  return result;
 }
 
 async function selectUsingSelectorsWithHeuristic(
@@ -1074,6 +1212,26 @@ async function clickDopingContinueButton(page: Page) {
 }
 
 export async function publishListing(listing: ListingDraft, mode: PublishMode) {
+  // ── Bot Ayarlarını Yükle ──────────────────────────────────────────────────
+  const botSettings = readSettings();
+  _speedMultiplier = botSettings.speedMultiplier ?? 1;
+
+  // Ayarlardan gelen varsayılanları listing'e uygula (listing'de yoksa)
+  if (!listing.color && botSettings.defaultColor) listing = { ...listing, color: botSettings.defaultColor };
+  if (!listing.storage && botSettings.defaultStorage) listing = { ...listing, storage: botSettings.defaultStorage };
+  if (!listing.town && botSettings.defaultTown) listing = { ...listing, town: botSettings.defaultTown };
+  if (!listing.quarter && botSettings.defaultQuarter) listing = { ...listing, quarter: botSettings.defaultQuarter };
+
+  // Fiyat ayarı
+  if (botSettings.priceAdjustPercent !== 0) {
+    listing = { ...listing, price: Math.round(listing.price * (1 + botSettings.priceAdjustPercent / 100)) };
+  }
+
+  // Açıklama eki
+  if (botSettings.descriptionSuffix && !listing.description.endsWith(botSettings.descriptionSuffix)) {
+    listing = { ...listing, description: listing.description + " " + botSettings.descriptionSuffix };
+  }
+
   // Reset step counter and start timer for this publish run
   _stepCounter = 0;
   _publishStartTime = Date.now();
@@ -1217,68 +1375,9 @@ export async function publishListing(listing: ListingDraft, mode: PublishMode) {
     if (postClickUrl.includes("urun-ozellikleri")) {
       stepLog(logs, "ÜRÜN ÖZELLİKLERİ");
       try {
-        // ── Renk (Lacivert, Gümüş, Turuncu arasından rastgele) ──
-        try {
-          const colorToSelect = ["Lacivert", "Gümüş", "Turuncu"][Math.floor(Math.random() * 3)];
-          await selectOptionByHeuristic(page, 'select[name="a86470"]', colorToSelect);
-          addLog(logs, `Renk → "${colorToSelect}"`, "OK");
-        } catch {
-          try {
-            await selectByLabelText(page, ["Renk"], "RANDOM");
-            addLog(logs, `Renk → Rastgele seçildi (fallback)`, "OK");
-          } catch {
-            addLog(logs, "Renk seçilemedi.", "WARN");
-          }
-        }
-        await sleep(800);
-
-        // ── Depolama Kapasitesi (Sabit: 256 GB) ──
-        try {
-          await selectOptionByHeuristic(page, 'select[name="a101170"]', "256 GB");
-          addLog(logs, `Depolama Kapasitesi → "256 GB"`, "OK");
-        } catch {
-          await selectByLabelText(page, ["Depolama Kapasitesi"], "256 GB").catch(() => null);
-        }
-        await sleep(500);
-
-        // ── Alındığı Yer (Sabit: Yurt dışı) ──
-        try {
-          await selectOptionByHeuristic(page, 'select[name="a120853"]', "Yurt dışı");
-          addLog(logs, "Alındığı Yer → Yurt dışı", "OK");
-        } catch {
-          await selectByLabelText(page, ["Alındığı Yer"], "Yurt dışı").catch(() => null);
-        }
-        await sleep(500);
-
-        // ── Garanti (Sabit: Distribütör Garantili) ──
-        try {
-          await selectOptionByHeuristic(page, 'select[name="a109392"]', "Distribütör Garantili");
-          addLog(logs, "Garanti → Distribütör Garantili", "OK");
-        } catch {
-          await selectByLabelText(page, ["Garanti"], "Distribütör Garantili").catch(() => null);
-        }
-        await sleep(500);
-
-        // ── Durumu (Sabit: Sıfır) ──
-        try {
-          await selectOptionByHeuristic(page, 'select[name="a119153"]', "Sıfır");
-          addLog(logs, "Durumu → Sıfır", "OK");
-        } catch {
-          await selectByLabelText(page, ["Durumu"], "Sıfır").catch(() => null);
-        }
-        await sleep(500);
-
-        // ── Takaslı (Sabit: Evet) ──
-        try {
-          await selectOptionByHeuristic(page, 'select[name="exchange"]', "Evet");
-          addLog(logs, "Takaslı → Evet", "OK");
-        } catch {
-          await selectByLabelText(page, ["Takaslı", "Takas"], "Evet").catch(() => null);
-        }
-        await sleep(800);
-
-        addLog(logs, "Tüm veriler dolduruldu, 2s bekleniyor...", "INFO");
-        await sleep(2000); 
+        await logVisibleSelects(page, logs);
+        await fillAllVisibleSelects(page, logs, listing as unknown as Record<string, unknown>, botSettings);
+        await sleep(1500);
 
         addLog(logs, "Ürün özellikleri 'Devam' tıklanıyor...", "INFO");
         await clickContinueButton(page);
@@ -1702,10 +1801,27 @@ export async function publishListing(listing: ListingDraft, mode: PublishMode) {
           const options = Array.from(sel.options).filter(o => o.value && o.value !== '' && o.value !== '?');
           if (options.length === 0) return { ok: false, value: '', label: 'seçenek yok' };
           
-          // Hedef ilçe varsa onu bul, yoksa rastgele
+          // Hedef ilçe varsa onu bul, yoksa öncelikli listeden (Anadolu Yakası) seç, o da yoksa rastgele
           let selectedOpt = null;
+          const priorityDistricts = [
+            "Ataşehir", "Beykoz", "Çekmeköy", "Kadıköy", "Kartal", 
+            "Maltepe", "Pendik", "Sancaktepe", "Sultanbeyli", "Şile", 
+            "Tuzla", "Ümraniye", "Üsküdar"
+          ].map(d => d.toLowerCase());
+
           if (target) {
             selectedOpt = options.find(o => o.text.toLowerCase().includes(target.toLowerCase()));
+          }
+
+          if (!selectedOpt) {
+            // Anadolu yakası ilçelerini filtrele
+            const priorityOptions = options.filter(o => 
+              priorityDistricts.some(pd => o.text.toLowerCase().includes(pd))
+            );
+            
+            if (priorityOptions.length > 0) {
+              selectedOpt = priorityOptions[Math.floor(Math.random() * priorityOptions.length)];
+            }
           }
           
           const finalOpt = selectedOpt || options[Math.floor(Math.random() * options.length)];
@@ -1719,11 +1835,21 @@ export async function publishListing(listing: ListingDraft, mode: PublishMode) {
             angularEl.controller('ngModel').$setViewValue(finalOpt.value);
             angularEl.scope()?.$apply?.();
           }
-          return { ok: true, value: finalOpt.value, label: finalOpt.text, isManual: !!selectedOpt };
+          return { 
+            ok: true, 
+            value: finalOpt.value, 
+            label: finalOpt.text, 
+            isManual: !!(target && selectedOpt === options.find(o => o.text.toLowerCase().includes(target.toLowerCase()))),
+            isPriority: !target && !!selectedOpt
+          };
         }, targetTown);
 
         if (townResult.ok) {
-          addLog(logs, `İlçe → "${townResult.label}" ${townResult.isManual ? '(formdan)' : '(rastgele)'}`, "OK");
+          let source = "(rastgele)";
+          if (townResult.isManual) source = "(formdan)";
+          else if (townResult.isPriority) source = "(öncelikli)";
+          
+          addLog(logs, `İlçe → "${townResult.label}" ${source}`, "OK");
           // Puppeteer native select de yapalım garanti olsun
           await page.select('select[name="town"]', townResult.value).catch(() => null);
         } else {
@@ -1845,61 +1971,9 @@ export async function publishListing(listing: ListingDraft, mode: PublishMode) {
     // ── Ürün Özellikleri Formu (Eğer bu adımda geldiyse) ──
     if (page.url().includes("urun-ozellikleri")) {
       try {
-        // Renk (Lacivert, Gümüş, Turuncu arasından rastgele)
-        try {
-          await page.waitForSelector('select[name="a86470"]', { timeout: 3000 }).catch(() => null);
-          const colorToSelect = ["Lacivert", "Gümüş", "Turuncu"][Math.floor(Math.random() * 3)];
-          await selectOptionByHeuristic(page, 'select[name="a86470"]', colorToSelect);
-          addLog(logs, `Renk → "${colorToSelect}"`, "OK");
-        } catch (e) {
-          try {
-            await selectByLabelText(page, ["Renk"], "RANDOM");
-            addLog(logs, `Renk → Rastgele seçildi (fallback)`, "OK");
-          } catch {
-            addLog(logs, "Renk seçilemedi.", "WARN");
-          }
-        }
-        await sleep(800);
-
-        // Depolama Kapasitesi (Sabit: 256 GB)
-        try {
-          await selectOptionByHeuristic(page, 'select[name="a101170"]', "256 GB");
-          addLog(logs, `Depolama Kapasitesi → "256 GB"`, "OK");
-        } catch {
-          await selectByLabelText(page, ["Depolama Kapasitesi"], "256 GB").catch(() => null);
-        }
-        await sleep(500);
-
-        // Alındığı Yer (Sabit: Yurt dışı)
-        await selectOptionByHeuristic(page, 'select[name="a120853"]', "Yurt dışı").catch(() => 
-          selectByLabelText(page, ["Alındığı Yer"], "Yurt dışı")
-        );
-        addLog(logs, "Alındığı Yer → Yurt dışı", "OK");
-        await sleep(500);
-
-        // Garanti (Sabit: Distribütör Garantili)
-        await selectOptionByHeuristic(page, 'select[name="a109392"]', "Distribütör Garantili").catch(() => 
-          selectByLabelText(page, ["Garanti"], "Distribütör Garantili")
-        );
-        addLog(logs, "Garanti → Distribütör Garantili", "OK");
-        await sleep(500);
-
-        // Durumu (Sabit: Sıfır)
-        await selectOptionByHeuristic(page, 'select[name="a119153"]', "Sıfır").catch(() => 
-          selectByLabelText(page, ["Durumu"], "Sıfır")
-        );
-        addLog(logs, "Durumu → Sıfır", "OK");
-        await sleep(500);
-
-        // Takaslı (Sabit: Evet)
-        await selectOptionByHeuristic(page, 'select[name="exchange"]', "Evet").catch(() => 
-          selectByLabelText(page, ["Takaslı", "Takas"], "Evet")
-        );
-        addLog(logs, "Takaslı → Evet", "OK");
-        await sleep(800);
-
-        addLog(logs, "Tüm veriler dolduruldu, 2s bekleniyor...", "INFO");
-        await sleep(2000);
+        await logVisibleSelects(page, logs);
+        await fillAllVisibleSelects(page, logs, listing as unknown as Record<string, unknown>, botSettings);
+        await sleep(1500);
 
         addLog(logs, "Final 'Devam' tıklanıyor...", "INFO");
         await clickContinueButton(page);

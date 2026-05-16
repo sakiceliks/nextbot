@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Bilinmeyen hata";
+    console.error("[API/UPLOAD] ❌ Yükleme hatası:", error);
     return NextResponse.json({ ok: false, error: errorMsg }, { status: 500 });
   }
 }

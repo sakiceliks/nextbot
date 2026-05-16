@@ -1,0 +1,22 @@
+{
+  "speedMultiplier": 1,
+  "queueDelaySeconds": 5,
+  "maxRetries": 2,
+  "defaultPublishMode": "publish",
+  "autoStartQueue": false,
+  "defaultColor": "Beyaz",
+  "defaultStorage": "256 GB",
+  "defaultOrigin": "Yurt dışı",
+  "defaultWarranty": "Distribütör Garantili",
+  "defaultCondition": "Sıfır",
+  "defaultExchangeable": "Evet",
+  "defaultTown": "Maltepe",
+  "defaultQuarter": "",
+  "priceAdjustPercent": 0,
+  "descriptionSuffix": "",
+  "skipDopingModal": true,
+  "debugScreenshots": true,
+  "headless": true,
+  "notifyOnSuccess": true,
+  "notifyOnError": true
+}
